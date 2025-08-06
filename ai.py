@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 load_dotenv()
 
@@ -26,6 +26,14 @@ def get_ai_response(user_msg: str) -> str:
 
 
 def transcribe_audio(path: str) -> str:
-    with open(path, "rb") as f:
-        transcript = client.audio.transcriptions.create(model="whisper-1", file=f)
+    supported_formats = {"flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"}
+    ext = os.path.splitext(path)[1][1:].lower()
+    if ext not in supported_formats:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {sorted(supported_formats)}")
+
+    try:
+        with open(path, "rb") as f:
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=f)
+    except BadRequestError as err:
+        raise ValueError(f"Transcription failed: {err}") from err
     return transcript.text
