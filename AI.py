@@ -1,7 +1,8 @@
 # AI VTuber Starter Template (Python Version)
 
 import openai
-import pyttsx3
+from gtts import gTTS
+import os
 import asyncio
 import websockets
 import json
@@ -37,8 +38,9 @@ async def get_ai_response(user_msg):
 # === TEXT TO SPEECH ===
 def speak_text(text):
     print(f"{VTUBER_NAME}: {text}")
-    tts.say(text)
-    tts.runAndWait()
+    tts = gTTS(text=text, lang='en')
+    tts.save("response.mp3")
+    os.system("mpg123 response.mp3")  # or "play" if mpg123 not available
 
 # === SIMULATED CHAT INTERFACE ===
 async def simulated_chat():
