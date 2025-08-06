@@ -36,10 +36,16 @@ def queue_audio():
     audio_file = request.files.get("file")
     if not audio_file:
         return {"error": "no file"}, 400
-    path = "temp_audio"
+
+    filename = audio_file.filename or "temp_audio"
+    ext = os.path.splitext(filename)[1]
+    path = f"temp_audio{ext}"
     audio_file.save(path)
+
     try:
         user_message = transcribe_audio(path)
+    except ValueError as err:
+        return {"error": str(err)}, 400
     finally:
         os.remove(path)
     reply = get_ai_response(f"{user_name} sier: {user_message}")
