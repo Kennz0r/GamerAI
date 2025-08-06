@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request, redirect, render_template_string, jsonify
+from flask import Flask, request, redirect, jsonify, send_from_directory
 
 from ai import get_ai_response, transcribe_audio
 
@@ -49,40 +49,17 @@ def queue_audio():
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template_string(
-        """
-        <h1>Pending AI Reply</h1>
-        {% if reply %}
-        <form method="post" action="approve">
-            <textarea name="reply" rows="4" cols="50">{{ reply }}</textarea><br>
-            <button type="submit">Send to Discord</button>
-        </form>
-        {% else %}
-        <p>No pending message.</p>
-        {% endif %}
-        <h2>Voice Control</h2>
-        <form method="post" action="voice">
-            <input type="hidden" name="action" value="join" />
-            <input type="text" name="channel_id" placeholder="Voice Channel ID" /><br>
-            <button type="submit">Join Voice</button>
-        </form>
-        <form method="post" action="voice">
-            <input type="hidden" name="action" value="join" />
-            <input type="hidden" name="channel_id" value="1402626902694432798" />
-            <button type="submit">Join Bot Channel</button>
-        </form>
-        <form method="post" action="voice">
-            <input type="hidden" name="action" value="leave" />
-            <button type="submit">Leave Voice</button>
-        </form>
-        <h2>Conversation</h2>
-        {% for c in conversation %}
-            <p><b>User:</b> {{ c['user'] }}<br><b>AI:</b> {{ c['reply'] }}</p>
-        {% endfor %}
-        """,
-        reply=pending["reply"],
-        conversation=conversation,
-    )
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/conversation", methods=["GET"])
+def get_conversation():
+    return jsonify(conversation)
+
+
+@app.route("/pending_message", methods=["GET"])
+def get_pending_message():
+    return jsonify({"reply": pending["reply"]})
 
 
 @app.route("/approve", methods=["POST"])
