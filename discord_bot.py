@@ -16,8 +16,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-HAS_SINKS = hasattr(discord, "sinks")
-if not HAS_SINKS:
+try:
+    import discord.sinks  # type: ignore
+    HAS_SINKS = True
+except Exception:
+    HAS_SINKS = False
     print("⚠️ discord.py has no 'sinks' attribute; voice recording disabled.")
 
 
