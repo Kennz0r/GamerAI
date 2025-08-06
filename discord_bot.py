@@ -5,7 +5,6 @@ from gtts import gTTS
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-import whisper  # or use faster_whisper
 
 load_dotenv()
 
@@ -17,7 +16,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-whisper_model = whisper.load_model("base")  # or "tiny" / "small"
 
 
 def create_tts_file(text, filename="response.mp3"):
@@ -97,26 +95,6 @@ async def fetch_pending():
             print("❌ File missing before cleanup")
 
 
-@bot.command()
-async def record(ctx):
-    vc = ctx.author.voice.channel
-    if not vc:
-        await ctx.send("You're not in a voice channel.")
-        return
-
-    voice = await vc.connect()
-    sink = audiorec.MP3Sink()  # Save as MP3
-    audio = await audiorec.Recorder().record(voice, sink, duration=10)  # Record for 10 seconds
-
-    file_path = list(audio.audio_files.values())[0]
-
-    # Transcribe with Whisper
-    result = whisper_model.transcribe(file_path)
-    await ctx.send(f"Transcribed: {result['text']}")
-
-    await voice.disconnect()
-
-
 async def send_audio(data: bytes) -> None:
     def _post():
         try:
@@ -131,6 +109,21 @@ async def send_audio(data: bytes) -> None:
             print(f"Error sending audio: {e}")
 
     await asyncio.to_thread(_post)
+
+
+def _recording_complete(sink: discord.sinks.MP3Sink, vc: discord.VoiceClient) -> None:
+    """Callback when a recording chunk is finished."""
+    for audio in sink.audio_data.values():
+        bot.loop.create_task(send_audio(audio.file.getvalue()))
+
+
+async def voice_listener(vc: discord.VoiceClient) -> None:
+    """Continuously record audio from a voice client and send it for processing."""
+    while vc.is_connected():
+        sink = discord.sinks.MP3Sink()
+        vc.start_recording(sink, _recording_complete, vc)
+        await asyncio.sleep(5)
+        vc.stop_recording()
 
 
 
@@ -163,7 +156,7 @@ async def poll_voice():
             print(f"✅ Found voice channel: {channel.name}")
             vc = await channel.connect()
             print(f"🎤 Connected to: {channel.name}")
-            #bot.loop.create_task(voice_loop(vc))
+            bot.loop.create_task(voice_listener(vc))
         else:
             print(f"⚠️ Channel ID {channel_id} is not a voice channel or not found.")
 
