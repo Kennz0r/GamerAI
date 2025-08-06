@@ -13,8 +13,8 @@ app = Flask(__name__)
 pending = {"channel_id": None, "reply": None, "approved": False}
 voice_command = {"action": None, "channel_id": None}
 conversation = []
-# Track whether AI responses are enabled
-ai_enabled = True
+# Track whether the AI should listen to speech input
+ai_hearing = True
 
 
 @app.route("/queue", methods=["POST"])
@@ -23,14 +23,11 @@ def queue_message():
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
-    if ai_enabled:
-        reply = get_ai_response(f"{user_name} sier: {user_message}")
-        conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
-        pending["channel_id"] = channel_id
-        pending["reply"] = reply
-        pending["approved"] = True
-    else:
-        conversation.append({"user_name": user_name, "user_message": user_message, "reply": ""})
+    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+    pending["channel_id"] = channel_id
+    pending["reply"] = reply
+    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -41,6 +38,9 @@ def queue_audio():
     audio_file = request.files.get("file")
     if not audio_file:
         return {"error": "no file"}, 400
+
+    if not ai_hearing:
+        return {"status": "ignored"}
 
     filename = audio_file.filename or "temp_audio"
     ext = os.path.splitext(filename)[1]
@@ -53,14 +53,12 @@ def queue_audio():
         return {"error": str(err)}, 400
     finally:
         os.remove(path)
-    if ai_enabled:
-        reply = get_ai_response(f"{user_name} sier: {user_message}")
-        conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
-        pending["channel_id"] = channel_id
-        pending["reply"] = reply
-        pending["approved"] = True
-    else:
-        conversation.append({"user_name": user_name, "user_message": user_message, "reply": ""})
+
+    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+    pending["channel_id"] = channel_id
+    pending["reply"] = reply
+    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -81,12 +79,12 @@ def get_pending_message():
 
 @app.route("/ai_enabled", methods=["GET", "POST"])
 def ai_enabled_route():
-    global ai_enabled
+    global ai_hearing
     if request.method == "GET":
-        return jsonify({"enabled": ai_enabled})
+        return jsonify({"enabled": ai_hearing})
     data = request.get_json(force=True)
-    ai_enabled = bool(data.get("enabled", True))
-    return jsonify({"enabled": ai_enabled})
+    ai_hearing = bool(data.get("enabled", True))
+    return jsonify({"enabled": ai_hearing})
 
 
 @app.route("/approve", methods=["POST"])
