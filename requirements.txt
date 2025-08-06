@@ -1,7 +1,6 @@
 openai
 dotenv
 gtts
-discord.py[voice]>=2.3.2
-PyNaCl
+py-cord[voice]>=2.6.1
 flask
 requests
