@@ -20,8 +20,9 @@ def queue_message():
     data = request.get_json(force=True)
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
-    reply = get_ai_response(user_message)
-    conversation.append({"user": user_message, "reply": reply})
+    user_name = data.get("user_name", "Unknown")
+    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
     pending["approved"] = True
@@ -31,6 +32,7 @@ def queue_message():
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
     channel_id = request.form.get("channel_id") or DISCORD_TEXT_CHANNEL
+    user_name = request.form.get("user_name", "Voice")
     audio_file = request.files.get("file")
     if not audio_file:
         return {"error": "no file"}, 400
@@ -40,8 +42,8 @@ def queue_audio():
         user_message = transcribe_audio(path)
     finally:
         os.remove(path)
-    reply = get_ai_response(user_message)
-    conversation.append({"user": user_message, "reply": reply})
+    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
     pending["approved"] = True
