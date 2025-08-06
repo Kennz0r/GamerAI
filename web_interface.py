@@ -11,6 +11,7 @@ app = Flask(__name__)
 
 pending = {"channel_id": None, "reply": None, "approved": False}
 voice_command = {"action": None, "channel_id": None}
+conversation = []
 
 
 @app.route("/queue", methods=["POST"])
@@ -19,9 +20,10 @@ def queue_message():
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
     reply = get_ai_response(user_message)
+    conversation.append({"user": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-    pending["approved"] = False
+    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -38,9 +40,10 @@ def queue_audio():
     finally:
         os.remove(path)
     reply = get_ai_response(user_message)
+    conversation.append({"user": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-    pending["approved"] = False
+    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -64,11 +67,21 @@ def index():
             <button type="submit">Join Voice</button>
         </form>
         <form method="post" action="voice">
+            <input type="hidden" name="action" value="join" />
+            <input type="hidden" name="channel_id" value="1402626902694432798" />
+            <button type="submit">Join Bot Channel</button>
+        </form>
+        <form method="post" action="voice">
             <input type="hidden" name="action" value="leave" />
             <button type="submit">Leave Voice</button>
         </form>
+        <h2>Conversation</h2>
+        {% for c in conversation %}
+            <p><b>User:</b> {{ c['user'] }}<br><b>AI:</b> {{ c['reply'] }}</p>
+        {% endfor %}
         """,
         reply=pending["reply"],
+        conversation=conversation,
     )
 
 
