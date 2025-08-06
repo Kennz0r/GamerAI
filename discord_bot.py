@@ -1,5 +1,6 @@
 import os
 import asyncio
+import shutil
 import requests
 from gtts import gTTS
 import discord
@@ -22,6 +23,11 @@ try:
 except Exception:
     HAS_SINKS = False
     print("⚠️ discord.py has no 'sinks' attribute; voice recording disabled.")
+
+FFMPEG_EXECUTABLE = shutil.which("ffmpeg") or os.path.join(".", "ffmpeg", "bin", "ffmpeg.exe")
+HAS_FFMPEG = os.path.isfile(FFMPEG_EXECUTABLE) if FFMPEG_EXECUTABLE else False
+if not HAS_FFMPEG:
+    print("⚠️ ffmpeg was not found; audio playback and recording disabled.")
 
 
 def create_tts_file(text, filename="response.mp3"):
@@ -83,10 +89,9 @@ async def fetch_pending():
         await channel.send(reply)
 
         vc = channel.guild.voice_client
-        if vc and not vc.is_playing():
-            FFMPEG_PATH = "./ffmpeg/bin/ffmpeg.exe"
+        if vc and not vc.is_playing() and HAS_FFMPEG:
             print(f"🎧 Playing audio from: {path}")
-            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_PATH)
+            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_EXECUTABLE)
             vc.play(source)
         else:
             print("📎 Sending MP3 as file (no voice client)")
@@ -120,24 +125,27 @@ async def send_audio(data: bytes) -> None:
 
     await asyncio.to_thread(_post)
 
-
-def _recording_complete(sink, vc: discord.VoiceClient) -> None:
+async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
     """Callback when a recording chunk is finished."""
     for audio in getattr(sink, "audio_data", {}).values():
-        bot.loop.create_task(send_audio(audio.file.getvalue()))
+        await send_audio(audio.file.getvalue())
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
     """Continuously record audio from a voice client and send it for processing."""
-    if not HAS_SINKS:
-        print("Voice recording not supported in this discord.py version.")
+    if not HAS_SINKS or not HAS_FFMPEG:
+        print("Voice recording not supported; missing sinks or ffmpeg.")
         return
 
     while vc.is_connected():
-        sink = discord.sinks.MP3Sink()
+        sink = discord.sinks.MP3Sink(ffmpeg=FFMPEG_EXECUTABLE)
         vc.start_recording(sink, _recording_complete, vc)
         await asyncio.sleep(5)
-        vc.stop_recording()
+        try:
+            vc.stop_recording()
+        except Exception as e:
+            print(f"Recording error: {e}")
+            break
 
 
 
