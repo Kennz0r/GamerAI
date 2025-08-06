@@ -1,0 +1,4 @@
+openai
+dotenv
+gtts
+discord.py
