@@ -17,8 +17,8 @@ except Exception:  # pragma: no cover - handles ImportError and AttributeError
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "0"))
-WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5000")
+DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "1285333390643695769"))
+WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://192.168.1.4:30145/proxy/5002")
 
 intents = discord.Intents.default()
 intents.message_content = True
