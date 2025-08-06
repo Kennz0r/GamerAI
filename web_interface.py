@@ -50,7 +50,7 @@ def index():
         """
         <h1>Pending AI Reply</h1>
         {% if reply %}
-        <form method="post" action="/approve">
+        <form method="post" action="approve">
             <textarea name="reply" rows="4" cols="50">{{ reply }}</textarea><br>
             <button type="submit">Send to Discord</button>
         </form>
@@ -58,12 +58,12 @@ def index():
         <p>No pending message.</p>
         {% endif %}
         <h2>Voice Control</h2>
-        <form method="post" action="/voice">
+        <form method="post" action="voice">
             <input type="hidden" name="action" value="join" />
             <input type="text" name="channel_id" placeholder="Voice Channel ID" /><br>
             <button type="submit">Join Voice</button>
         </form>
-        <form method="post" action="/voice">
+        <form method="post" action="voice">
             <input type="hidden" name="action" value="leave" />
             <button type="submit">Leave Voice</button>
         </form>
@@ -77,7 +77,7 @@ def approve():
     text = request.form.get("reply", "")
     pending["reply"] = text
     pending["approved"] = True
-    return redirect("/")
+    return redirect(".")
 
 
 @app.route("/pending", methods=["GET"])
@@ -97,7 +97,7 @@ def set_voice_command():
     channel_id = request.form.get("channel_id")
     voice_command["action"] = action
     voice_command["channel_id"] = channel_id
-    return redirect("/")
+    return redirect(".")
 
 
 @app.route("/voice", methods=["GET"])

@@ -6,14 +6,6 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-try:
-    # `discord.sinks` is only available in certain discord.py forks and versions.
-    # Attempt to import it but fall back gracefully if unavailable so the bot
-    # can still run without voice recording features.
-    from discord import sinks  # type: ignore
-except Exception:  # pragma: no cover - handles ImportError and AttributeError
-    sinks = None  # type: ignore
-
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -121,17 +113,25 @@ async def poll_voice():
             return {}
 
     data = await asyncio.to_thread(_get)
+    print(f"📡 poll_voice received: {data}")
+
     action = data.get("action")
     channel_id = data.get("channel_id")
 
-    if action == "join" and channel_id and sinks:
+    if action == "join" and channel_id:
+        print(f"➡️ Trying to join voice channel {channel_id}")
         channel = bot.get_channel(int(channel_id))
+        print(f"🔍 get_channel returned: {channel}")
         if isinstance(channel, discord.VoiceChannel):
-            vc = await channel.connect()
-            bot.loop.create_task(voice_loop(vc))
-    elif action == "leave":
-        for vc in list(bot.voice_clients):
-            await vc.disconnect()
+            try:
+                vc = await channel.connect()
+                print(f"✅ Joined voice channel: {channel.name}")
+                bot.loop.create_task(voice_loop(vc))
+            except Exception as e:
+                print(f"❌ Failed to connect: {e}")
+        else:
+            print(f"⚠️ Channel ID {channel_id} is not a voice channel.")
+
 
 
 @bot.event
