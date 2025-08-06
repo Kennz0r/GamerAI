@@ -5,6 +5,7 @@ from gtts import gTTS
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+import whisper  # or use faster_whisper
 
 load_dotenv()
 
@@ -16,12 +17,19 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+whisper_model = whisper.load_model("base")  # or "tiny" / "small"
 
 
 def create_tts_file(text, filename="response.mp3"):
-    tts = gTTS(text=text, lang="en")
-    tts.save(filename)
+    try:
+        print(f"🗣 Creating TTS for: {text}")
+        tts = gTTS(text=text, lang="en")
+        tts.save(filename)
+        print(f"✅ TTS saved as {os.path.abspath(filename)}")
+    except Exception as e:
+        print(f"❌ Failed to create TTS: {e}")
     return filename
+
 
 
 async def send_to_web(channel_id: int, user_message: str) -> None:
@@ -50,27 +58,63 @@ async def fetch_pending():
     data = await asyncio.to_thread(_get)
     reply = data.get("reply")
     channel_id = data.get("channel_id")
+
     if not reply or not channel_id:
         return
 
+    print(f"🗣 Creating TTS for: {reply}")
+    path = create_tts_file(reply)  # <-- This should stay synchronous
+    print(f"✅ TTS saved as {os.path.abspath(path)}")
+
     channel = bot.get_channel(int(channel_id))
     if not channel:
+        print("❌ Channel not found")
         return
-
-    path = create_tts_file(reply)
-
-    FFMPEG_PATH = "./ffmpeg/bin/ffmpeg.exe"  # 👈 Add this line here
 
     try:
         await channel.send(reply)
-        if channel.guild.voice_client:
-            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_PATH)  # 👈 Use it here
-            channel.guild.voice_client.play(source)
-        else:
-            await channel.send(file=discord.File(path))
-    finally:
-        os.remove(path)
 
+        vc = channel.guild.voice_client
+        if vc and not vc.is_playing():
+            FFMPEG_PATH = "./ffmpeg/bin/ffmpeg.exe"
+            print(f"🎧 Playing audio from: {path}")
+            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_PATH)
+            vc.play(source)
+        else:
+            print("📎 Sending MP3 as file (no voice client)")
+            await channel.send(file=discord.File(path))
+
+        # Optional: wait for FFmpeg to finish before deleting
+        await asyncio.sleep(3)
+
+    except Exception as e:
+        print(f"⚠️ Error playing or sending TTS: {e}")
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+            print("🧹 Cleaned up mp3")
+        else:
+            print("❌ File missing before cleanup")
+
+
+@bot.command()
+async def record(ctx):
+    vc = ctx.author.voice.channel
+    if not vc:
+        await ctx.send("You're not in a voice channel.")
+        return
+
+    voice = await vc.connect()
+    sink = audiorec.MP3Sink()  # Save as MP3
+    audio = await audiorec.Recorder().record(voice, sink, duration=10)  # Record for 10 seconds
+
+    file_path = list(audio.audio_files.values())[0]
+
+    # Transcribe with Whisper
+    result = whisper_model.transcribe(file_path)
+    await ctx.send(f"Transcribed: {result['text']}")
+
+    await voice.disconnect()
 
 
 async def send_audio(data: bytes) -> None:
