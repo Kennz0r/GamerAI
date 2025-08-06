@@ -28,6 +28,10 @@ FFMPEG_EXECUTABLE = shutil.which("ffmpeg") or os.path.join(".", "ffmpeg", "bin",
 HAS_FFMPEG = os.path.isfile(FFMPEG_EXECUTABLE) if FFMPEG_EXECUTABLE else False
 if not HAS_FFMPEG:
     print("⚠️ ffmpeg was not found; audio playback and recording disabled.")
+else:
+    # Ensure the directory containing ffmpeg is on PATH so discord.sinks can find it
+    ffmpeg_dir = os.path.dirname(FFMPEG_EXECUTABLE)
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
 
 def create_tts_file(text, filename="response.mp3"):
@@ -138,7 +142,8 @@ async def voice_listener(vc: discord.VoiceClient) -> None:
         return
 
     while vc.is_connected():
-        sink = discord.sinks.MP3Sink(ffmpeg=FFMPEG_EXECUTABLE)
+        # MP3Sink no longer accepts an explicit ffmpeg path; ensure ffmpeg is on PATH instead
+        sink = discord.sinks.MP3Sink()
         vc.start_recording(sink, _recording_complete, vc)
         await asyncio.sleep(5)
         try:
