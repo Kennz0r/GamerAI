@@ -5,7 +5,14 @@ from gtts import gTTS
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
-from discord import sinks
+
+try:
+    # `discord.sinks` is only available in certain discord.py forks and versions.
+    # Attempt to import it but fall back gracefully if unavailable so the bot
+    # can still run without voice recording features.
+    from discord import sinks  # type: ignore
+except Exception:  # pragma: no cover - handles ImportError and AttributeError
+    sinks = None  # type: ignore
 
 load_dotenv()
 
@@ -84,6 +91,15 @@ async def send_audio(data: bytes) -> None:
 
 
 async def voice_loop(vc: discord.VoiceClient):
+    """Continuously record audio from a voice channel and forward it to the web server.
+
+    If the installed discord.py version does not support voice sinks the loop exits
+    immediately.
+    """
+
+    if not sinks:  # Voice recording is unsupported
+        return
+
     while vc.is_connected():
         sink = sinks.MP3Sink()
         vc.start_recording(sink, lambda *args: None)
@@ -107,7 +123,8 @@ async def poll_voice():
     data = await asyncio.to_thread(_get)
     action = data.get("action")
     channel_id = data.get("channel_id")
-    if action == "join" and channel_id:
+
+    if action == "join" and channel_id and sinks:
         channel = bot.get_channel(int(channel_id))
         if isinstance(channel, discord.VoiceChannel):
             vc = await channel.connect()
