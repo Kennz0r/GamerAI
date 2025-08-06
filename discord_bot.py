@@ -216,8 +216,11 @@ async def on_message(message):
         return
     if DISCORD_TEXT_CHANNEL and message.channel.id != DISCORD_TEXT_CHANNEL:
         return
-    await send_to_web(message.channel.id, message.content, str(message.author))
     await bot.process_commands(message)
+
+    content = message.content.lower()
+    if bot.user.mentioned_in(message) or content.startswith("anna"):
+        await send_to_web(message.channel.id, message.content, str(message.author))
 
 
 if __name__ == "__main__":
