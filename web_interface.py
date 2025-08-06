@@ -13,8 +13,8 @@ app = Flask(__name__)
 pending = {"channel_id": None, "reply": None, "approved": False}
 voice_command = {"action": None, "channel_id": None}
 conversation = []
-# Track whether the AI should listen to speech input
-ai_hearing = True
+# Track whether speech recognition is enabled
+speech_recognition_enabled = True
 
 
 @app.route("/queue", methods=["POST"])
@@ -39,7 +39,7 @@ def queue_audio():
     if not audio_file:
         return {"error": "no file"}, 400
 
-    if not ai_hearing:
+    if not speech_recognition_enabled:
         return {"status": "ignored"}
 
     filename = audio_file.filename or "temp_audio"
@@ -77,14 +77,14 @@ def get_pending_message():
     return jsonify({"reply": pending["reply"]})
 
 
-@app.route("/ai_enabled", methods=["GET", "POST"])
-def ai_enabled_route():
-    global ai_hearing
+@app.route("/speech_recognition", methods=["GET", "POST"])
+def speech_recognition_route():
+    global speech_recognition_enabled
     if request.method == "GET":
-        return jsonify({"enabled": ai_hearing})
+        return jsonify({"enabled": speech_recognition_enabled})
     data = request.get_json(force=True)
-    ai_hearing = bool(data.get("enabled", True))
-    return jsonify({"enabled": ai_hearing})
+    speech_recognition_enabled = bool(data.get("enabled", True))
+    return jsonify({"enabled": speech_recognition_enabled})
 
 
 @app.route("/approve", methods=["POST"])
