@@ -136,21 +136,29 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
-    """Continuously record audio from a voice client and send it for processing."""
+    """Continuously record short audio snippets and send them for processing."""
     if not HAS_SINKS or not HAS_FFMPEG:
         print("Voice recording not supported; missing sinks or ffmpeg.")
         return
 
     while vc.is_connected():
-        # MP3Sink no longer accepts an explicit ffmpeg path; ensure ffmpeg is on PATH instead
         sink = discord.sinks.MP3Sink()
-        vc.start_recording(sink, _recording_complete, vc)
-        await asyncio.sleep(5)
+
+        done = asyncio.Event()
+
+        async def _callback(s, *_):
+            await _recording_complete(s, vc)
+            done.set()
+
         try:
+            vc.start_recording(sink, _callback, vc)
+            await asyncio.sleep(5)  # Record 5 seconds
             vc.stop_recording()
+            await done.wait()  # Wait until _callback finishes before continuing
         except Exception as e:
             print(f"Recording error: {e}")
             break
+
 
 
 
