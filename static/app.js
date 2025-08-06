@@ -1,6 +1,9 @@
 function App() {
   const [conversation, setConversation] = React.useState([]);
   const [pending, setPending] = React.useState('');
+  const [recording, setRecording] = React.useState(false);
+  const mediaRecorderRef = React.useRef(null);
+  const chunksRef = React.useRef([]);
 
   React.useEffect(() => {
     const fetchData = () => {
@@ -15,6 +18,28 @@ function App() {
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorderRef.current = new MediaRecorder(stream);
+    mediaRecorderRef.current.ondataavailable = e => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    mediaRecorderRef.current.onstop = async () => {
+      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      chunksRef.current = [];
+      const formData = new FormData();
+      formData.append('file', blob, 'audio.webm');
+      await fetch('/queue_audio', { method: 'POST', body: formData });
+    };
+    mediaRecorderRef.current.start();
+    setRecording(true);
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current.stop();
+    setRecording(false);
+  };
 
   return (
     <div>
@@ -42,6 +67,10 @@ function App() {
         <input type="hidden" name="action" value="leave" />
         <button type="submit">Leave Voice</button>
       </form>
+      <h2>Microphone</h2>
+      <button onClick={recording ? stopRecording : startRecording}>
+        {recording ? 'Stop Recording' : 'Record Mic'}
+      </button>
       <h2>Conversation</h2>
       {conversation.map((c, i) => (
         <p key={i}>

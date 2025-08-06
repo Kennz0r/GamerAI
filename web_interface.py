@@ -6,6 +6,7 @@ from ai import get_ai_response, transcribe_audio
 
 load_dotenv()
 
+DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 
 app = Flask(__name__)
 
@@ -29,7 +30,7 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
-    channel_id = request.form.get("channel_id")
+    channel_id = request.form.get("channel_id") or DISCORD_TEXT_CHANNEL
     audio_file = request.files.get("file")
     if not audio_file:
         return {"error": "no file"}, 400
