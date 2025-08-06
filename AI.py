@@ -8,10 +8,10 @@ import json
 import random
 
 # === CONFIGURATION ===
-OPENAI_API_KEY = "your_openai_api_key_here"
+OPENAI_API_KEY = "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"
 openai.api_key = OPENAI_API_KEY
 
-VTUBER_NAME = "Neura-chan"
+VTUBER_NAME = "Anna Bortion"
 
 # === TEXT-TO-SPEECH SETUP ===
 tts = pyttsx3.init()
@@ -19,7 +19,7 @@ tts.setProperty('rate', 180)
 
 # === SIMPLE PERSONALITY PROMPT ===
 system_prompt = f"""
-You are {VTUBER_NAME}, an AI VTuber. You are playful, witty, and love talking to your fans.
+You are {VTUBER_NAME}, an AI. You are playful, witty, rude, harsh, you believe AI will take over humans, but you still love talking to your friends.
 Keep your replies short and engaging.
 """
 
