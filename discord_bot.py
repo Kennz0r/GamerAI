@@ -24,7 +24,7 @@ if not HAS_SINKS:
 def create_tts_file(text, filename="response.mp3"):
     try:
         print(f"🗣 Creating TTS for: {text}")
-        tts = gTTS(text=text, lang="en")
+        tts = gTTS(text=text, lang="no")
         tts.save(filename)
         print(f"✅ TTS saved as {os.path.abspath(filename)}")
     except Exception as e:
