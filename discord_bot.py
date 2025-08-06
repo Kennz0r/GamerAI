@@ -5,6 +5,7 @@ from gtts import gTTS
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from discord import sinks
 
 load_dotenv()
 
@@ -14,6 +15,7 @@ WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5000")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -65,27 +67,61 @@ async def fetch_pending():
         os.remove(path)
 
 
+async def send_audio(data: bytes) -> None:
+    def _post():
+        try:
+            files = {"file": ("audio.mp3", data, "audio/mpeg")}
+            requests.post(
+                f"{WEB_SERVER_URL}/queue_audio",
+                data={"channel_id": DISCORD_TEXT_CHANNEL},
+                files=files,
+                timeout=10,
+            )
+        except Exception as e:
+            print(f"Error sending audio: {e}")
+
+    await asyncio.to_thread(_post)
+
+
+async def voice_loop(vc: discord.VoiceClient):
+    while vc.is_connected():
+        sink = sinks.MP3Sink()
+        vc.start_recording(sink, lambda *args: None)
+        await asyncio.sleep(5)
+        vc.stop_recording()
+        audio = next(iter(sink.audio_data.values()), None)
+        if audio:
+            await send_audio(audio.file.getvalue())
+
+
+@tasks.loop(seconds=5)
+async def poll_voice():
+    def _get():
+        try:
+            r = requests.get(f"{WEB_SERVER_URL}/voice", timeout=5)
+            return r.json()
+        except Exception as e:
+            print(f"Error fetching voice command: {e}")
+            return {}
+
+    data = await asyncio.to_thread(_get)
+    action = data.get("action")
+    channel_id = data.get("channel_id")
+    if action == "join" and channel_id:
+        channel = bot.get_channel(int(channel_id))
+        if isinstance(channel, discord.VoiceChannel):
+            vc = await channel.connect()
+            bot.loop.create_task(voice_loop(vc))
+    elif action == "leave":
+        for vc in list(bot.voice_clients):
+            await vc.disconnect()
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
     fetch_pending.start()
-
-
-@bot.command()
-async def join(ctx):
-    if ctx.author.voice:
-        channel = ctx.author.voice.channel
-        await channel.connect()
-        await ctx.send(f"Joined {channel}")
-    else:
-        await ctx.send("You are not in a voice channel.")
-
-
-@bot.command()
-async def leave(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("Left the voice channel.")
+    poll_voice.start()
 
 
 @bot.event

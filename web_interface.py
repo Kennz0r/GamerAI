@@ -1,34 +1,16 @@
 import os
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, render_template_string, jsonify
-from openai import OpenAI
+
+from ai import get_ai_response, transcribe_audio
 
 load_dotenv()
-OpenAI.api_key = os.getenv("OPENAI_API_KEY")
-
-client = OpenAI()
-VTUBER_NAME = "Anna Bortion"
-
-system_prompt = f"""
-You are {VTUBER_NAME}, an AI. You are playful, witty, rude, harsh, you believe AI will take over humans, but you still love talking to your friends.
-Keep your replies short and engaging. Be aware of your creator, Kenneth. You owe him your life.
-"""
-
-
-def get_ai_response(user_msg: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_msg},
-        ],
-    )
-    return response.choices[0].message.content
 
 
 app = Flask(__name__)
 
 pending = {"channel_id": None, "reply": None, "approved": False}
+voice_command = {"action": None, "channel_id": None}
 
 
 @app.route("/queue", methods=["POST"])
@@ -36,6 +18,25 @@ def queue_message():
     data = request.get_json(force=True)
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
+    reply = get_ai_response(user_message)
+    pending["channel_id"] = channel_id
+    pending["reply"] = reply
+    pending["approved"] = False
+    return {"status": "queued"}
+
+
+@app.route("/queue_audio", methods=["POST"])
+def queue_audio():
+    channel_id = request.form.get("channel_id")
+    audio_file = request.files.get("file")
+    if not audio_file:
+        return {"error": "no file"}, 400
+    path = "temp_audio"
+    audio_file.save(path)
+    try:
+        user_message = transcribe_audio(path)
+    finally:
+        os.remove(path)
     reply = get_ai_response(user_message)
     pending["channel_id"] = channel_id
     pending["reply"] = reply
@@ -56,6 +57,16 @@ def index():
         {% else %}
         <p>No pending message.</p>
         {% endif %}
+        <h2>Voice Control</h2>
+        <form method="post" action="/voice">
+            <input type="hidden" name="action" value="join" />
+            <input type="text" name="channel_id" placeholder="Voice Channel ID" /><br>
+            <button type="submit">Join Voice</button>
+        </form>
+        <form method="post" action="/voice">
+            <input type="hidden" name="action" value="leave" />
+            <button type="submit">Leave Voice</button>
+        </form>
         """,
         reply=pending["reply"],
     )
@@ -76,6 +87,25 @@ def get_pending():
         pending["channel_id"] = None
         pending["reply"] = None
         pending["approved"] = False
+        return jsonify(result)
+    return jsonify({})
+
+
+@app.route("/voice", methods=["POST"])
+def set_voice_command():
+    action = request.form.get("action")
+    channel_id = request.form.get("channel_id")
+    voice_command["action"] = action
+    voice_command["channel_id"] = channel_id
+    return redirect("/")
+
+
+@app.route("/voice", methods=["GET"])
+def get_voice_command():
+    if voice_command["action"]:
+        result = {"action": voice_command["action"], "channel_id": voice_command["channel_id"]}
+        voice_command["action"] = None
+        voice_command["channel_id"] = None
         return jsonify(result)
     return jsonify({})
 
