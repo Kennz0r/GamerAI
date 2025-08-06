@@ -5,6 +5,7 @@ function App() {
   const [textChannelId, setTextChannelId] = React.useState('');
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
+  const [aiEnabled, setAiEnabled] = React.useState(true);
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
 
@@ -16,6 +17,9 @@ function App() {
       fetch('/pending_message')
         .then(res => res.json())
         .then(data => setPending(data.reply || ''));
+      fetch('/ai_enabled')
+        .then(res => res.json())
+        .then(data => setAiEnabled(data.enabled));
     };
     fetchData();
     const interval = setInterval(fetchData, 2000);
@@ -58,6 +62,15 @@ function App() {
     setUserText('');
   };
 
+  const updateAiEnabled = async enabled => {
+    await fetch('/ai_enabled', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    setAiEnabled(enabled);
+  };
+
   return (
     <div>
       <h1>Pending AI Reply</h1>
@@ -69,6 +82,10 @@ function App() {
       ) : (
         <p>No pending message.</p>
       )}
+      <h2>AI Response</h2>
+      <p>Status: {aiEnabled ? 'Enabled' : 'Disabled'}</p>
+      <button onClick={() => updateAiEnabled(false)}>Disable AI</button>
+      <button onClick={() => updateAiEnabled(true)}>Enable AI</button>
       <h2>Voice Control</h2>
       <form method="post" action="voice">
         <input type="hidden" name="action" value="join" />

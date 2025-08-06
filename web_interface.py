@@ -13,6 +13,8 @@ app = Flask(__name__)
 pending = {"channel_id": None, "reply": None, "approved": False}
 voice_command = {"action": None, "channel_id": None}
 conversation = []
+# Track whether AI responses are enabled
+ai_enabled = True
 
 
 @app.route("/queue", methods=["POST"])
@@ -21,11 +23,14 @@ def queue_message():
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
-    reply = get_ai_response(f"{user_name} sier: {user_message}")
-    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
-    pending["channel_id"] = channel_id
-    pending["reply"] = reply
-    pending["approved"] = True
+    if ai_enabled:
+        reply = get_ai_response(f"{user_name} sier: {user_message}")
+        conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+        pending["channel_id"] = channel_id
+        pending["reply"] = reply
+        pending["approved"] = True
+    else:
+        conversation.append({"user_name": user_name, "user_message": user_message, "reply": ""})
     return {"status": "queued"}
 
 
@@ -48,11 +53,14 @@ def queue_audio():
         return {"error": str(err)}, 400
     finally:
         os.remove(path)
-    reply = get_ai_response(f"{user_name} sier: {user_message}")
-    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
-    pending["channel_id"] = channel_id
-    pending["reply"] = reply
-    pending["approved"] = True
+    if ai_enabled:
+        reply = get_ai_response(f"{user_name} sier: {user_message}")
+        conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+        pending["channel_id"] = channel_id
+        pending["reply"] = reply
+        pending["approved"] = True
+    else:
+        conversation.append({"user_name": user_name, "user_message": user_message, "reply": ""})
     return {"status": "queued"}
 
 
@@ -69,6 +77,16 @@ def get_conversation():
 @app.route("/pending_message", methods=["GET"])
 def get_pending_message():
     return jsonify({"reply": pending["reply"]})
+
+
+@app.route("/ai_enabled", methods=["GET", "POST"])
+def ai_enabled_route():
+    global ai_enabled
+    if request.method == "GET":
+        return jsonify({"enabled": ai_enabled})
+    data = request.get_json(force=True)
+    ai_enabled = bool(data.get("enabled", True))
+    return jsonify({"enabled": ai_enabled})
 
 
 @app.route("/approve", methods=["POST"])
