@@ -1,6 +1,7 @@
 # AI VTuber Starter Template (Python Version)
 
 import openai
+from dotenv import load_dotenv
 from gtts import gTTS
 import os
 import asyncio
@@ -8,15 +9,13 @@ import websockets
 import json
 import random
 
+
 # === CONFIGURATION ===
-OPENAI_API_KEY = "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"
-openai.api_key = OPENAI_API_KEY
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 VTUBER_NAME = "Anna Bortion"
 
-# === TEXT-TO-SPEECH SETUP ===
-tts = pyttsx3.init()
-tts.setProperty('rate', 180)
 
 # === SIMPLE PERSONALITY PROMPT ===
 system_prompt = f"""
