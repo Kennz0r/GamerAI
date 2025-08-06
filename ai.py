@@ -34,7 +34,11 @@ def transcribe_audio(path: str) -> str:
 
     try:
         with open(path, "rb") as f:
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=f)
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="no",  # Assume Norwegian speech most of the time
+            )
     except BadRequestError as err:
         raise ValueError(f"Transcription failed: {err}") from err
     return transcript.text
