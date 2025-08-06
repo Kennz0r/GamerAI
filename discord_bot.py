@@ -16,6 +16,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+HAS_SINKS = hasattr(discord, "sinks")
+if not HAS_SINKS:
+    print("⚠️ discord.py has no 'sinks' attribute; voice recording disabled.")
 
 
 def create_tts_file(text, filename="response.mp3"):
@@ -111,14 +114,18 @@ async def send_audio(data: bytes) -> None:
     await asyncio.to_thread(_post)
 
 
-def _recording_complete(sink: discord.sinks.MP3Sink, vc: discord.VoiceClient) -> None:
+def _recording_complete(sink, vc: discord.VoiceClient) -> None:
     """Callback when a recording chunk is finished."""
-    for audio in sink.audio_data.values():
+    for audio in getattr(sink, "audio_data", {}).values():
         bot.loop.create_task(send_audio(audio.file.getvalue()))
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
     """Continuously record audio from a voice client and send it for processing."""
+    if not HAS_SINKS:
+        print("Voice recording not supported in this discord.py version.")
+        return
+
     while vc.is_connected():
         sink = discord.sinks.MP3Sink()
         vc.start_recording(sink, _recording_complete, vc)
