@@ -36,12 +36,16 @@ def create_tts_file(text, filename="response.mp3"):
 
 
 
-async def send_to_web(channel_id: int, user_message: str) -> None:
+async def send_to_web(channel_id: int, user_message: str, user_name: str) -> None:
     def _post():
         try:
             requests.post(
                 f"{WEB_SERVER_URL}/queue",
-                json={"channel_id": channel_id, "user_message": user_message},
+                json={
+                    "channel_id": channel_id,
+                    "user_message": user_message,
+                    "user_name": user_name,
+                },
                 timeout=5,
             )
         except Exception as e:
@@ -191,7 +195,7 @@ async def on_message(message):
         return
     if DISCORD_TEXT_CHANNEL and message.channel.id != DISCORD_TEXT_CHANNEL:
         return
-    await send_to_web(message.channel.id, message.content)
+    await send_to_web(message.channel.id, message.content, str(message.author))
     await bot.process_commands(message)
 
 

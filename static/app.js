@@ -2,6 +2,9 @@ function App() {
   const [conversation, setConversation] = React.useState([]);
   const [pending, setPending] = React.useState('');
   const [recording, setRecording] = React.useState(false);
+  const [textChannelId, setTextChannelId] = React.useState('');
+  const [userName, setUserName] = React.useState('');
+  const [userText, setUserText] = React.useState('');
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
 
@@ -41,6 +44,20 @@ function App() {
     setRecording(false);
   };
 
+  const sendText = async (e) => {
+    e.preventDefault();
+    await fetch('/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel_id: textChannelId,
+        user_message: userText,
+        user_name: userName,
+      }),
+    });
+    setUserText('');
+  };
+
   return (
     <div>
       <h1>Pending AI Reply</h1>
@@ -71,10 +88,33 @@ function App() {
       <button onClick={recording ? stopRecording : startRecording}>
         {recording ? 'Stop Recording' : 'Record Mic'}
       </button>
+      <h2>Send Message</h2>
+      <form onSubmit={sendText}>
+        <input
+          type="text"
+          value={userName}
+          onChange={e => setUserName(e.target.value)}
+          placeholder="User Name"
+        /><br />
+        <input
+          type="text"
+          value={textChannelId}
+          onChange={e => setTextChannelId(e.target.value)}
+          placeholder="Text Channel ID"
+        /><br />
+        <textarea
+          rows="2"
+          cols="50"
+          value={userText}
+          onChange={e => setUserText(e.target.value)}
+          placeholder="Message"
+        ></textarea><br />
+        <button type="submit">Send to AI</button>
+      </form>
       <h2>Conversation</h2>
       {conversation.map((c, i) => (
         <p key={i}>
-          <b>User:</b> {c.user}
+          <b>{c.user_name}:</b> {c.user_message}
           <br />
           <b>AI:</b> {c.reply}
         </p>
