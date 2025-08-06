@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "1285333390643695769"))
-WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://192.168.1.4:30145/proxy/5002")
+DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "0"))
+WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5002")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -46,24 +46,31 @@ async def fetch_pending():
         except Exception as e:
             print(f"Error fetching from web server: {e}")
             return {}
+
     data = await asyncio.to_thread(_get)
     reply = data.get("reply")
     channel_id = data.get("channel_id")
     if not reply or not channel_id:
         return
+
     channel = bot.get_channel(int(channel_id))
     if not channel:
         return
+
     path = create_tts_file(reply)
+
+    FFMPEG_PATH = "./ffmpeg/bin/ffmpeg.exe"  # 👈 Add this line here
+
     try:
         await channel.send(reply)
         if channel.guild.voice_client:
-            source = discord.FFmpegPCMAudio(path)
+            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_PATH)  # 👈 Use it here
             channel.guild.voice_client.play(source)
         else:
             await channel.send(file=discord.File(path))
     finally:
         os.remove(path)
+
 
 
 async def send_audio(data: bytes) -> None:
@@ -81,25 +88,6 @@ async def send_audio(data: bytes) -> None:
 
     await asyncio.to_thread(_post)
 
-
-async def voice_loop(vc: discord.VoiceClient):
-    """Continuously record audio from a voice channel and forward it to the web server.
-
-    If the installed discord.py version does not support voice sinks the loop exits
-    immediately.
-    """
-
-    if not sinks:  # Voice recording is unsupported
-        return
-
-    while vc.is_connected():
-        sink = sinks.MP3Sink()
-        vc.start_recording(sink, lambda *args: None)
-        await asyncio.sleep(5)
-        vc.stop_recording()
-        audio = next(iter(sink.audio_data.values()), None)
-        if audio:
-            await send_audio(audio.file.getvalue())
 
 
 @tasks.loop(seconds=5)
@@ -120,17 +108,26 @@ async def poll_voice():
 
     if action == "join" and channel_id:
         print(f"➡️ Trying to join voice channel {channel_id}")
-        channel = bot.get_channel(int(channel_id))
-        print(f"🔍 get_channel returned: {channel}")
-        if isinstance(channel, discord.VoiceChannel):
-            try:
-                vc = await channel.connect()
-                print(f"✅ Joined voice channel: {channel.name}")
-                bot.loop.create_task(voice_loop(vc))
-            except Exception as e:
-                print(f"❌ Failed to connect: {e}")
+        channel = None
+        for guild in bot.guilds:
+            c = guild.get_channel(int(channel_id))
+            if isinstance(c, discord.VoiceChannel):
+                channel = c
+                break
+
+        if channel:
+            print(f"✅ Found voice channel: {channel.name}")
+            vc = await channel.connect()
+            print(f"🎤 Connected to: {channel.name}")
+            #bot.loop.create_task(voice_loop(vc))
         else:
-            print(f"⚠️ Channel ID {channel_id} is not a voice channel.")
+            print(f"⚠️ Channel ID {channel_id} is not a voice channel or not found.")
+
+    elif action == "leave":
+        for vc in list(bot.voice_clients):
+            await vc.disconnect()
+            print("👋 Disconnected from voice channel.")
+
 
 
 
