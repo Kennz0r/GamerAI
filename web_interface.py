@@ -1,6 +1,7 @@
 import os
 import io
 import subprocess
+import sys
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
@@ -23,6 +24,7 @@ conversation = []
 speech_recognition_enabled = True
 # Pending TTS audio bytes for Discord bot and web preview
 pending_tts_discord: bytes | None = None
+# Pending preview audio is generated on-demand but keep storage for compatibility
 pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
@@ -101,6 +103,16 @@ def get_pending_message():
     return jsonify({"reply": pending["reply"]})
 
 
+@app.route("/log", methods=["GET"])
+def get_log():
+    try:
+        with open("ollama.log", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        return jsonify({"log": "".join(lines[-200:])})
+    except FileNotFoundError:
+        return jsonify({"log": ""})
+
+
 @app.route("/tts_audio", methods=["GET"])
 def get_tts_audio():
     global pending_tts_discord
@@ -111,9 +123,14 @@ def get_tts_audio():
     return ("", 204)
 
 
-@app.route("/tts_preview", methods=["GET"])
+@app.route("/tts_preview", methods=["GET", "POST"])
 def get_tts_preview():
     global pending_tts_web
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        text = data.get("text", "")
+        audio = create_tts_audio(text)
+        return audio, 200, {"Content-Type": "audio/mpeg"}
     if pending_tts_web:
         data = pending_tts_web
         pending_tts_web = None
@@ -179,7 +196,7 @@ def control_discord_bot():
     action = data.get("action")
     if action == "start":
         if not discord_bot_process or discord_bot_process.poll() is not None:
-            discord_bot_process = subprocess.Popen(["python", "discord_bot.py"])
+            discord_bot_process = subprocess.Popen([sys.executable, "discord_bot.py"])
             return jsonify({"status": "started"})
         return jsonify({"status": "already_running"})
     elif action == "stop":
