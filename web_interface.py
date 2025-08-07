@@ -2,7 +2,6 @@ import os
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
-from gtts import gTTS
 
 from ai import get_ai_response, transcribe_audio
 
@@ -21,24 +20,16 @@ conversation = []
 speech_recognition_enabled = True
 
 
-def create_tts_file(text: str, filename: str = "response.mp3") -> str:
-    tts = gTTS(text=text, lang="no")
-    tts.save(filename)
-    return filename
+def send_to_discord(channel_id: str, text: str) -> None:
+    """Send a TTS message to Discord.
 
-
-def send_to_discord(channel_id: str, text: str, path: str) -> None:
+    Discord will automatically read the message aloud in a joined voice
+    channel when the ``tts`` flag is set.
+    """
     url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages"
     headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
-    with open(path, "rb") as f:
-        requests.post(
-            url,
-            headers=headers,
-            data={"content": text},
-            files={"file": (os.path.basename(path), f, "audio/mpeg")},
-            timeout=10,
-        )
-    os.remove(path)
+    payload = {"content": text, "tts": True}
+    requests.post(url, headers=headers, json=payload, timeout=10)
 
 
 @app.route("/queue", methods=["POST"])
@@ -118,8 +109,7 @@ def approve():
     if conversation:
         conversation[-1]["reply"] = pending_reply
 
-    path = create_tts_file(pending_reply)
-    send_to_discord(channel_id, pending_reply, path)
+    send_to_discord(channel_id, pending_reply)
 
     pending["channel_id"] = None
     pending["reply"] = None
