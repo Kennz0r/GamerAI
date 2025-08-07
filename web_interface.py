@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
 from gtts import gTTS
 
-from ai import get_ai_response, transcribe_audio, set_model, ollama_client, VTUBER_NAME
+from ai import get_ai_response, transcribe_audio, set_model, ollama_client
 
 
 load_dotenv()
@@ -75,12 +75,6 @@ def send_to_discord(channel_id: str, text: str) -> None:
     requests.post(url, headers=headers, json=payload, timeout=10)
 
 
-def addressed_to_ai(text: str) -> bool:
-    """Return True if the transcribed text appears to address the AI."""
-    name = VTUBER_NAME.lower()
-    first_name = name.split()[0]
-    lower = text.lower()
-    return first_name in lower or name in lower
 
 
 @app.route("/queue", methods=["POST"])
@@ -126,8 +120,6 @@ def queue_audio():
     finally:
         os.remove(path)
 
-    if not user_message.strip() or not addressed_to_ai(user_message):
-        return {"status": "ignored"}
 
     reply = get_ai_response(f"{user_name} sier: {user_message}")
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
