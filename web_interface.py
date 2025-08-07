@@ -3,6 +3,7 @@ import io
 import subprocess
 import sys
 import signal
+import json
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
@@ -29,6 +30,8 @@ pending_tts_discord: bytes | None = None
 pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
+# Storage for optional fine-tuning examples
+training_data: list[dict[str, str]] = []
 
 
 def create_tts_audio(text: str) -> bytes:
@@ -99,9 +102,34 @@ def get_conversation():
     return jsonify(conversation)
 
 
-@app.route("/pending_message", methods=["GET"])
-def get_pending_message():
-    return jsonify({"reply": pending["reply"]})
+@app.route("/pending_message", methods=["GET", "DELETE"])
+def pending_message_route():
+    if request.method == "GET":
+        return jsonify({"reply": pending["reply"]})
+    pending["channel_id"] = None
+    pending["reply"] = None
+    return jsonify({"status": "cleared"})
+
+
+@app.route("/train", methods=["GET"])
+def train_page():
+    return send_from_directory("static", "train.html")
+
+
+@app.route("/training_data", methods=["POST"])
+def add_training_example():
+    data = request.get_json(force=True)
+    prompt = data.get("prompt", "")
+    response = data.get("response", "")
+    training_data.append({"prompt": prompt, "response": response})
+    with open("training_data.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"prompt": prompt, "response": response}) + "\n")
+    return jsonify({"status": "added"})
+
+
+@app.route("/fine_tune", methods=["POST"])
+def fine_tune_model():
+    return jsonify({"status": "started", "examples": len(training_data)})
 
 
 @app.route("/log", methods=["GET"])
