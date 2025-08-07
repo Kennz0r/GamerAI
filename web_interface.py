@@ -1,20 +1,44 @@
 import os
+import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
+from gtts import gTTS
 
 from ai import get_ai_response, transcribe_audio
 
 load_dotenv()
 
 DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DISCORD_API_BASE = "https://discord.com/api/v10"
 
 app = Flask(__name__)
 
-pending = {"channel_id": None, "reply": None, "approved": False}
+pending = {"channel_id": None, "reply": None}
 voice_command = {"action": None, "channel_id": None}
 conversation = []
 # Track whether speech recognition is enabled
 speech_recognition_enabled = True
+
+
+def create_tts_file(text: str, filename: str = "response.mp3") -> str:
+    tts = gTTS(text=text, lang="no")
+    tts.save(filename)
+    return filename
+
+
+def send_to_discord(channel_id: str, text: str, path: str) -> None:
+    url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages"
+    headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+    with open(path, "rb") as f:
+        requests.post(
+            url,
+            headers=headers,
+            data={"content": text},
+            files={"file": (os.path.basename(path), f, "audio/mpeg")},
+            timeout=10,
+        )
+    os.remove(path)
 
 
 @app.route("/queue", methods=["POST"])
@@ -27,7 +51,6 @@ def queue_message():
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -58,7 +81,6 @@ def queue_audio():
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-    pending["approved"] = True
     return {"status": "queued"}
 
 
@@ -90,20 +112,18 @@ def speech_recognition_route():
 @app.route("/approve", methods=["POST"])
 def approve():
     text = request.form.get("reply", "")
-    pending["reply"] = text
-    pending["approved"] = True
+    pending_reply = text or pending["reply"] or ""
+    channel_id = pending.get("channel_id") or DISCORD_TEXT_CHANNEL
+
+    if conversation:
+        conversation[-1]["reply"] = pending_reply
+
+    path = create_tts_file(pending_reply)
+    send_to_discord(channel_id, pending_reply, path)
+
+    pending["channel_id"] = None
+    pending["reply"] = None
     return redirect(".")
-
-
-@app.route("/pending", methods=["GET"])
-def get_pending():
-    if pending["approved"] and pending["reply"]:
-        result = {"channel_id": pending["channel_id"], "reply": pending["reply"]}
-        pending["channel_id"] = None
-        pending["reply"] = None
-        pending["approved"] = False
-        return jsonify(result)
-    return jsonify({})
 
 
 @app.route("/voice", methods=["POST"])

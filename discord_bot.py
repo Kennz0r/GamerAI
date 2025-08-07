@@ -2,7 +2,6 @@ import os
 import asyncio
 import shutil
 import requests
-from gtts import gTTS
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -27,22 +26,11 @@ except Exception:
 FFMPEG_EXECUTABLE = shutil.which("ffmpeg") or os.path.join(".", "ffmpeg", "bin", "ffmpeg.exe")
 HAS_FFMPEG = os.path.isfile(FFMPEG_EXECUTABLE) if FFMPEG_EXECUTABLE else False
 if not HAS_FFMPEG:
-    print("⚠️ ffmpeg was not found; audio playback and recording disabled.")
+    print("⚠️ ffmpeg was not found; audio recording disabled.")
 else:
     # Ensure the directory containing ffmpeg is on PATH so discord.sinks can find it
     ffmpeg_dir = os.path.dirname(FFMPEG_EXECUTABLE)
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-
-
-def create_tts_file(text, filename="response.mp3"):
-    try:
-        print(f"🗣 Creating TTS for: {text}")
-        tts = gTTS(text=text, lang="no")
-        tts.save(filename)
-        print(f"✅ TTS saved as {os.path.abspath(filename)}")
-    except Exception as e:
-        print(f"❌ Failed to create TTS: {e}")
-    return filename
 
 
 
@@ -62,56 +50,6 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str) -> Non
             print(f"Error sending to web server: {e}")
     await asyncio.to_thread(_post)
 
-
-@tasks.loop(seconds=5)
-async def fetch_pending():
-    def _get():
-        try:
-            r = requests.get(f"{WEB_SERVER_URL}/pending", timeout=5)
-            return r.json()
-        except Exception as e:
-            print(f"Error fetching from web server: {e}")
-            return {}
-
-    data = await asyncio.to_thread(_get)
-    reply = data.get("reply")
-    channel_id = data.get("channel_id")
-
-    if not reply or not channel_id:
-        return
-
-    print(f"🗣 Creating TTS for: {reply}")
-    path = create_tts_file(reply)  # <-- This should stay synchronous
-    print(f"✅ TTS saved as {os.path.abspath(path)}")
-
-    channel = bot.get_channel(int(channel_id))
-    if not channel:
-        print("❌ Channel not found")
-        return
-
-    try:
-        await channel.send(reply)
-
-        vc = channel.guild.voice_client
-        if vc and not vc.is_playing() and HAS_FFMPEG:
-            print(f"🎧 Playing audio from: {path}")
-            source = discord.FFmpegPCMAudio(path, executable=FFMPEG_EXECUTABLE)
-            vc.play(source)
-        else:
-            print("📎 Sending MP3 as file (no voice client)")
-            await channel.send(file=discord.File(path))
-
-        # Optional: wait for FFmpeg to finish before deleting
-        await asyncio.sleep(3)
-
-    except Exception as e:
-        print(f"⚠️ Error playing or sending TTS: {e}")
-    finally:
-        if os.path.exists(path):
-            os.remove(path)
-            print("🧹 Cleaned up mp3")
-        else:
-            print("❌ File missing before cleanup")
 
 
 async def send_audio(data: bytes) -> None:
@@ -206,7 +144,6 @@ async def poll_voice():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    fetch_pending.start()
     poll_voice.start()
 
 
