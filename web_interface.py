@@ -1,5 +1,6 @@
 import os
 import io
+import subprocess
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
@@ -20,8 +21,11 @@ voice_command = {"action": None, "channel_id": None}
 conversation = []
 # Track whether speech recognition is enabled
 speech_recognition_enabled = True
-# Pending TTS audio bytes for Discord voice playback
-pending_tts: bytes | None = None
+# Pending TTS audio bytes for Discord bot and web preview
+pending_tts_discord: bytes | None = None
+pending_tts_web: bytes | None = None
+# Handle for the optional Discord bot subprocess
+discord_bot_process: subprocess.Popen | None = None
 
 
 def create_tts_audio(text: str) -> bytes:
@@ -99,10 +103,20 @@ def get_pending_message():
 
 @app.route("/tts_audio", methods=["GET"])
 def get_tts_audio():
-    global pending_tts
-    if pending_tts:
-        data = pending_tts
-        pending_tts = None
+    global pending_tts_discord
+    if pending_tts_discord:
+        data = pending_tts_discord
+        pending_tts_discord = None
+        return data, 200, {"Content-Type": "audio/mpeg"}
+    return ("", 204)
+
+
+@app.route("/tts_preview", methods=["GET"])
+def get_tts_preview():
+    global pending_tts_web
+    if pending_tts_web:
+        data = pending_tts_web
+        pending_tts_web = None
         return data, 200, {"Content-Type": "audio/mpeg"}
     return ("", 204)
 
@@ -126,9 +140,11 @@ def approve():
     if conversation:
         conversation[-1]["reply"] = pending_reply
 
-    # Generate TTS audio and store for Discord bot to fetch
-    global pending_tts
-    pending_tts = create_tts_audio(pending_reply)
+    # Generate TTS audio and store for playback
+    global pending_tts_discord, pending_tts_web
+    audio = create_tts_audio(pending_reply)
+    pending_tts_discord = audio
+    pending_tts_web = audio
 
     send_to_discord(channel_id, pending_reply)
 
@@ -154,6 +170,25 @@ def get_voice_command():
         voice_command["channel_id"] = None
         return jsonify(result)
     return jsonify({})
+
+
+@app.route("/discord_bot", methods=["POST"])
+def control_discord_bot():
+    global discord_bot_process
+    data = request.get_json(force=True)
+    action = data.get("action")
+    if action == "start":
+        if not discord_bot_process or discord_bot_process.poll() is not None:
+            discord_bot_process = subprocess.Popen(["python", "discord_bot.py"])
+            return jsonify({"status": "started"})
+        return jsonify({"status": "already_running"})
+    elif action == "stop":
+        if discord_bot_process and discord_bot_process.poll() is None:
+            discord_bot_process.terminate()
+            discord_bot_process = None
+            return jsonify({"status": "stopped"})
+        return jsonify({"status": "not_running"})
+    return jsonify({"error": "unknown action"}), 400
 
 
 if __name__ == "__main__":
