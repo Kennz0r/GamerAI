@@ -19,17 +19,21 @@ Discord brukeren som heter Kennz0r kan du kalle for Kenneth, han er din skaper.
 """
 
 
+ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.4:30068")
+
 def get_ai_response(user_msg: str) -> str:
     """Send the user's message to a locally hosted Ollama model."""
-    model = os.getenv("OLLAMA_MODEL", "llama3")
+    model = os.getenv("OLLAMA_MODEL", "llama2")
     response = ollama.chat(
         model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},
         ],
+        options={"base_url": ollama_base_url}
     )
     return response["message"]["content"]
+
 
 
 def transcribe_audio(path: str) -> str:
