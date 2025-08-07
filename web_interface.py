@@ -131,6 +131,9 @@ def get_tts_preview():
         data = request.get_json(force=True)
         text = data.get("text", "")
         audio = create_tts_audio(text)
+        # Clear pending message after generating preview
+        pending["channel_id"] = None
+        pending["reply"] = None
         return audio, 200, {"Content-Type": "audio/mpeg"}
     if pending_tts_web:
         data = pending_tts_web
@@ -202,7 +205,10 @@ def control_discord_bot():
         return jsonify({"status": "already_running"})
     elif action == "stop":
         if discord_bot_process and discord_bot_process.poll() is None:
-            discord_bot_process.send_signal(signal.SIGINT)
+            if os.name == "nt":
+                discord_bot_process.terminate()
+            else:
+                discord_bot_process.send_signal(signal.SIGINT)
             try:
                 discord_bot_process.wait(timeout=5)
             except subprocess.TimeoutExpired:

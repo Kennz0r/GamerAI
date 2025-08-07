@@ -39,12 +39,12 @@ form {
 }
 
 #root {
-  max-width: 800px;
+  max-width: 1200px;
   margin: auto;
 }
 
 .conversation {
-  max-height: 80px; /* Approx 5 lines */
+  max-height: 240px; /* Increased height */
   overflow-y: auto;
   border: 1px solid #444;
   padding: 10px;
@@ -57,4 +57,17 @@ form {
   border: 1px solid #444;
   padding: 10px;
   background: #2e2e42;
+}
+
+.container {
+  display: flex;
+  gap: 20px;
+}
+
+.left-panel {
+  flex: 2;
+}
+
+.right-panel {
+  flex: 1;
 }
