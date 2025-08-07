@@ -10,7 +10,8 @@ load_dotenv()
 
 # Load the local Whisper model once at import time
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-whisper_model = WhisperModel(WHISPER_MODEL, device="cpu")
+whisper_model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
+
 
 # Configure logging to capture interactions with Ollama
 logger = logging.getLogger("ollama")
