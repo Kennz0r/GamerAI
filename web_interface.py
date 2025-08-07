@@ -2,6 +2,7 @@ import os
 import io
 import subprocess
 import sys
+import signal
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
@@ -201,11 +202,12 @@ def control_discord_bot():
         return jsonify({"status": "already_running"})
     elif action == "stop":
         if discord_bot_process and discord_bot_process.poll() is None:
-            discord_bot_process.terminate()
+            discord_bot_process.send_signal(signal.SIGINT)
             try:
                 discord_bot_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 discord_bot_process.kill()
+                discord_bot_process.wait()
             finally:
                 discord_bot_process = None
             return jsonify({"status": "stopped"})

@@ -42,3 +42,19 @@ form {
   max-width: 800px;
   margin: auto;
 }
+
+.conversation {
+  max-height: 80px; /* Approx 5 lines */
+  overflow-y: auto;
+  border: 1px solid #444;
+  padding: 10px;
+}
+
+.log-window {
+  white-space: pre-wrap;
+  max-height: 160px; /* Approx 10 lines */
+  overflow-y: auto;
+  border: 1px solid #444;
+  padding: 10px;
+  background: #2e2e42;
+}
