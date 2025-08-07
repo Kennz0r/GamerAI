@@ -60,7 +60,7 @@ async def send_audio(data: bytes) -> None:
                 f"{WEB_SERVER_URL}/queue_audio",
                 data={"channel_id": DISCORD_TEXT_CHANNEL},
                 files=files,
-                timeout=10,
+                timeout=360,
             )
         except Exception as e:
             print(f"Error sending audio: {e}")
