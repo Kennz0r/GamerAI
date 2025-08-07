@@ -11,6 +11,8 @@ load_dotenv()
 # Load the local Whisper model once at import time. Attempt GPU first and
 # gracefully fall back to CPU if CUDA/cuDNN is unavailable.
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+# Allow overriding the expected transcription language; default to Norwegian.
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "no")
 try:
     whisper_model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
 except Exception as err:
@@ -90,8 +92,20 @@ def transcribe_audio(path: str) -> str:
         raise ValueError(f"Unsupported file format: {ext}. Supported formats: {sorted(supported_formats)}")
 
     try:
-        segments, _ = whisper_model.transcribe(path, language="no")
-        text = "".join(segment.text for segment in segments).strip()
-    except Exception as err:  # pragma: no cover - whisper errors
-        raise ValueError(f"Transcription failed: {err}") from err
+        segments, _ = whisper_model.transcribe(
+            path,
+            language=WHISPER_LANGUAGE,
+            multilingual=True,
+            vad_filter=True,
+        )
+    except Exception:
+        try:
+            segments, _ = whisper_model.transcribe(
+                path,
+                language=WHISPER_LANGUAGE,
+                multilingual=True,
+            )
+        except Exception as err:  # pragma: no cover - whisper errors
+            raise ValueError(f"Transcription failed: {err}") from err
+    text = "".join(segment.text for segment in segments).strip()
     return text
