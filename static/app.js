@@ -71,6 +71,32 @@ function App() {
     setSpeechEnabled(enabled);
   };
 
+  const playTTS = async () => {
+    const res = await fetch('/tts_preview');
+    if (res.status === 200) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play();
+    }
+  };
+
+  const startBot = async () => {
+    await fetch('/discord_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start' }),
+    });
+  };
+
+  const stopBot = async () => {
+    await fetch('/discord_bot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop' }),
+    });
+  };
+
   return (
     <div>
       <h1>Pending AI Reply</h1>
@@ -82,6 +108,10 @@ function App() {
       ) : (
         <p>No pending message.</p>
       )}
+      <button onClick={playTTS}>Play TTS</button>
+      <h2>Discord Bot</h2>
+      <button onClick={startBot}>Start Bot</button>
+      <button onClick={stopBot}>Stop Bot</button>
       <h2>Speech Recognition</h2>
       <p>Status: {speechEnabled ? 'Enabled' : 'Disabled'}</p>
       <button onClick={() => updateSpeechEnabled(false)}>Disable Speech Recognition</button>

@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 import ollama
 
@@ -9,6 +10,15 @@ load_dotenv()
 # Load the local Whisper model once at import time
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 whisper_model = WhisperModel(WHISPER_MODEL, device="cpu")
+
+# Configure logging to capture interactions with Ollama
+logger = logging.getLogger("ollama")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    handler = logging.FileHandler("ollama.log")
+    formatter = logging.Formatter("%(asctime)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 VTUBER_NAME = "Anna Bortion"
@@ -27,8 +37,8 @@ ollama_client = ollama.Client(host=OLLAMA_HOST)
 
 def get_ai_response(user_msg: str) -> str:
     model = os.getenv("OLLAMA_MODEL", "mistral")
-    print("Using model:", os.getenv("OLLAMA_MODEL"))
-
+    logger.info("Using model: %s", model)
+    logger.info("User message: %s", user_msg)
 
     try:
         response = ollama_client.chat(
@@ -38,8 +48,11 @@ def get_ai_response(user_msg: str) -> str:
                 {"role": "user", "content": user_msg},
             ],
         )
-        return response["message"]["content"]
+        reply = response["message"]["content"]
+        logger.info("Ollama reply: %s", reply)
+        return reply
     except Exception as e:
+        logger.error("Ollama error: %s", e)
         return f"[Feil ved tilkobling til Ollama: {e}]"
 
 
