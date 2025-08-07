@@ -50,7 +50,7 @@ def get_ai_response(user_msg: str) -> str:
             ],
         )
         reply = response["message"]["content"]
-        logger.info("Ollama reply: %s", reply)
+        logger.info("Anna Bortion: %s", reply)
         return reply
     except Exception as e:
         logger.error("Ollama error: %s", e)

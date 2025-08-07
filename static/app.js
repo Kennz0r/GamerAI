@@ -175,7 +175,7 @@ function App() {
           <p key={i}>
             <b>{c.user_name}:</b> {c.user_message}
             <br />
-            <b>AI:</b> {c.reply}
+            <b>Anna Bortion:</b> {c.reply}
           </p>
         ))}
       </div>

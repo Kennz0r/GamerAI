@@ -154,15 +154,15 @@ async def poll_voice():
         if channel:
             print(f"✅ Found voice channel: {channel.name}")
             vc = await channel.connect()
-            print(f"🎤 Connected to: {channel.name}")
+            print(f"Connected to: {channel.name}")
             bot.loop.create_task(voice_listener(vc))
         else:
-            print(f"⚠️ Channel ID {channel_id} is not a voice channel or not found.")
+            print(f"Channel ID {channel_id} is not a voice channel or not found.")
 
     elif action == "leave":
         for vc in list(bot.voice_clients):
             await vc.disconnect()
-            print("👋 Disconnected from voice channel.")
+            print("Disconnected from voice channel.")
 
 
 
