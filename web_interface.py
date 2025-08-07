@@ -106,7 +106,7 @@ def get_pending_message():
 @app.route("/log", methods=["GET"])
 def get_log():
     try:
-        with open("ollama.log", "r", encoding="utf-8") as f:
+        with open("ollama.log", "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
         return jsonify({"log": "".join(lines[-200:])})
     except FileNotFoundError:
@@ -202,7 +202,12 @@ def control_discord_bot():
     elif action == "stop":
         if discord_bot_process and discord_bot_process.poll() is None:
             discord_bot_process.terminate()
-            discord_bot_process = None
+            try:
+                discord_bot_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                discord_bot_process.kill()
+            finally:
+                discord_bot_process = None
             return jsonify({"status": "stopped"})
         return jsonify({"status": "not_running"})
     return jsonify({"error": "unknown action"}), 400
