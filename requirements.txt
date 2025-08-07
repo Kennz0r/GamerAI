@@ -4,3 +4,4 @@ dotenv
 py-cord[voice]>=2.6.1
 flask
 requests
+gTTS

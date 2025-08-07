@@ -1,7 +1,9 @@
 import os
+import io
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
+from gtts import gTTS
 
 from ai import get_ai_response, transcribe_audio
 
@@ -18,17 +20,22 @@ voice_command = {"action": None, "channel_id": None}
 conversation = []
 # Track whether speech recognition is enabled
 speech_recognition_enabled = True
+# Pending TTS audio bytes for Discord voice playback
+pending_tts: bytes | None = None
+
+
+def create_tts_audio(text: str) -> bytes:
+    tts = gTTS(text=text, lang="no")
+    buf = io.BytesIO()
+    tts.write_to_fp(buf)
+    return buf.getvalue()
 
 
 def send_to_discord(channel_id: str, text: str) -> None:
-    """Send a TTS message to Discord.
-
-    Discord will automatically read the message aloud in a joined voice
-    channel when the ``tts`` flag is set.
-    """
+    """Send plain text message to Discord text channel."""
     url = f"{DISCORD_API_BASE}/channels/{channel_id}/messages"
     headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
-    payload = {"content": text, "tts": True}
+    payload = {"content": text}
     requests.post(url, headers=headers, json=payload, timeout=10)
 
 
@@ -90,6 +97,16 @@ def get_pending_message():
     return jsonify({"reply": pending["reply"]})
 
 
+@app.route("/tts_audio", methods=["GET"])
+def get_tts_audio():
+    global pending_tts
+    if pending_tts:
+        data = pending_tts
+        pending_tts = None
+        return data, 200, {"Content-Type": "audio/mpeg"}
+    return ("", 204)
+
+
 @app.route("/speech_recognition", methods=["GET", "POST"])
 def speech_recognition_route():
     global speech_recognition_enabled
@@ -108,6 +125,10 @@ def approve():
 
     if conversation:
         conversation[-1]["reply"] = pending_reply
+
+    # Generate TTS audio and store for Discord bot to fetch
+    global pending_tts
+    pending_tts = create_tts_audio(pending_reply)
 
     send_to_discord(channel_id, pending_reply)
 
