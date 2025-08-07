@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from dotenv import load_dotenv
 import ollama
 
@@ -60,7 +61,14 @@ def get_ai_response(user_msg: str) -> str:
                 {"role": "user", "content": user_msg},
             ],
         )
-        reply = response["message"]["content"]
+        reply_raw = response["message"]["content"]
+        # Extract and log any <think>...</think> sections
+        thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
+        for thought in thoughts:
+            logger.info("Anna Bortion [think]: %s", thought.strip())
+
+        # Remove <think> sections from the final reply
+        reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL).strip()
         logger.info("Anna Bortion: %s", reply)
         return reply
     except Exception as e:
