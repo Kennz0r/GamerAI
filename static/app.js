@@ -6,6 +6,7 @@ function App() {
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
+  const [log, setLog] = React.useState('');
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
 
@@ -20,6 +21,9 @@ function App() {
       fetch('/speech_recognition')
         .then(res => res.json())
         .then(data => setSpeechEnabled(data.enabled));
+      fetch('/log')
+        .then(res => res.json())
+        .then(data => setLog(data.log));
     };
     fetchData();
     const interval = setInterval(fetchData, 2000);
@@ -72,7 +76,13 @@ function App() {
   };
 
   const playTTS = async () => {
-    const res = await fetch('/tts_preview');
+    const textarea = document.querySelector('textarea[name="reply"]');
+    const text = textarea ? textarea.value : pending;
+    const res = await fetch('/tts_preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
     if (res.status === 200) {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -166,6 +176,8 @@ function App() {
           <b>AI:</b> {c.reply}
         </p>
       ))}
+      <h2>Log</h2>
+      <pre style={{whiteSpace: 'pre-wrap'}}>{log}</pre>
     </div>
   );
 }
