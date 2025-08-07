@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 import ollama
-import requests
 
 from faster_whisper import WhisperModel
 
@@ -22,7 +21,9 @@ Discord brukeren som heter Kennz0r kan du kalle for Kenneth, han er din skaper.
 """
 
 
-ollama.base_url = os.getenv("OLLAMA_HOST", "http://192.168.1.4:30068")
+# Configure a client for the Ollama server
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://192.168.1.4:30068")
+ollama_client = ollama.Client(host=OLLAMA_HOST)
 
 def get_ai_response(user_msg: str) -> str:
     model = os.getenv("OLLAMA_MODEL", "mistral")
@@ -30,7 +31,7 @@ def get_ai_response(user_msg: str) -> str:
 
 
     try:
-        response = ollama.chat(
+        response = ollama_client.chat(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -38,7 +39,7 @@ def get_ai_response(user_msg: str) -> str:
             ],
         )
         return response["message"]["content"]
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return f"[Feil ved tilkobling til Ollama: {e}]"
 
 
