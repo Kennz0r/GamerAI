@@ -8,9 +8,14 @@ from faster_whisper import WhisperModel
 
 load_dotenv()
 
-# Load the local Whisper model once at import time
+# Load the local Whisper model once at import time. Attempt GPU first and
+# gracefully fall back to CPU if CUDA/cuDNN is unavailable.
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-whisper_model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
+try:
+    whisper_model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
+except Exception as err:
+    print(f"Whisper GPU init failed: {err}. Falling back to CPU.")
+    whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
 
 # Configure logging to capture interactions with Ollama

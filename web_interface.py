@@ -85,6 +85,13 @@ def queue_message():
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
+
+    # Generate TTS preview automatically so the user can hear the reply
+    global pending_tts_web, pending_tts_discord
+    pending_tts_web = create_tts_audio(reply)
+    # Clear any pending Discord audio until the message is approved
+    pending_tts_discord = None
+
     return {"status": "queued"}
 
 
@@ -115,6 +122,12 @@ def queue_audio():
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
     pending["channel_id"] = channel_id
     pending["reply"] = reply
+
+    # Prepare TTS preview for voice input replies as well
+    global pending_tts_web, pending_tts_discord
+    pending_tts_web = create_tts_audio(reply)
+    pending_tts_discord = None
+
     return {"status": "queued"}
 
 
