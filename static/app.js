@@ -2,11 +2,12 @@ function App() {
   const [conversation, setConversation] = React.useState([]);
   const [pending, setPending] = React.useState('');
   const [recording, setRecording] = React.useState(false);
-  const [textChannelId, setTextChannelId] = React.useState('');
+  const [textChannelId, setTextChannelId] = React.useState('1285333390643695769');
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
   const [log, setLog] = React.useState('');
+  const [showLog, setShowLog] = React.useState(false);
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
 
@@ -169,15 +170,20 @@ function App() {
         <button type="submit">Send to AI</button>
       </form>
       <h2>Conversation</h2>
-      {conversation.map((c, i) => (
-        <p key={i}>
-          <b>{c.user_name}:</b> {c.user_message}
-          <br />
-          <b>AI:</b> {c.reply}
-        </p>
-      ))}
+      <div className="conversation">
+        {conversation.map((c, i) => (
+          <p key={i}>
+            <b>{c.user_name}:</b> {c.user_message}
+            <br />
+            <b>AI:</b> {c.reply}
+          </p>
+        ))}
+      </div>
       <h2>Log</h2>
-      <pre style={{whiteSpace: 'pre-wrap'}}>{log}</pre>
+      <button onClick={() => setShowLog(!showLog)}>
+        {showLog ? 'Hide Log' : 'Show Log'}
+      </button>
+      {showLog && <pre className="log-window">{log}</pre>}
     </div>
   );
 }
