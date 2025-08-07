@@ -1,4 +1,5 @@
 import os
+import io
 import asyncio
 import shutil
 import requests
@@ -98,6 +99,31 @@ async def voice_listener(vc: discord.VoiceClient) -> None:
             break
 
 
+@tasks.loop(seconds=5)
+async def poll_tts():
+    def _get():
+        try:
+            r = requests.get(f"{WEB_SERVER_URL}/tts_audio", timeout=5)
+            if r.status_code == 200:
+                return r.content
+        except Exception as e:
+            print(f"Error fetching TTS audio: {e}")
+        return None
+
+    data = await asyncio.to_thread(_get)
+    if not data:
+        return
+
+    for vc in list(bot.voice_clients):
+        if not vc.is_connected() or vc.is_playing():
+            continue
+        try:
+            source = discord.FFmpegPCMAudio(io.BytesIO(data), pipe=True, executable=FFMPEG_EXECUTABLE)
+            vc.play(source)
+        except Exception as e:
+            print(f"Error playing TTS: {e}")
+
+
 
 
 @tasks.loop(seconds=5)
@@ -145,6 +171,7 @@ async def poll_voice():
 async def on_ready():
     print(f"Logged in as {bot.user}")
     poll_voice.start()
+    poll_tts.start()
 
 
 @bot.event
