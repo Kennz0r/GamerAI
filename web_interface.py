@@ -120,6 +120,10 @@ def queue_audio():
     finally:
         os.remove(path)
 
+    
+    if not user_message.strip():
+        return {"status": "ignored"}
+
 
     reply = get_ai_response(f"{user_name} sier: {user_message}")
     conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
