@@ -60,10 +60,12 @@ function App() {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
     mediaRecorderRef.current.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      const file = new File(chunksRef.current, 'audio.webm', { type: 'audio/webm' });
       chunksRef.current = [];
       const formData = new FormData();
-      formData.append('file', blob, 'audio.webm');
+      formData.append('file', file);
+      formData.append('channel_id', textChannelId);
+      formData.append('user_name', userName);
       await fetch('/queue_audio', { method: 'POST', body: formData });
     };
     mediaRecorderRef.current.start();
