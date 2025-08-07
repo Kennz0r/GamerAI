@@ -97,7 +97,7 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
-    channel_id = request.form.get("channel_id") or DISCORD_TEXT_CHANNEL
+    channel_id = request.form.get("channel_id") or None
     user_name = request.form.get("user_name", "Voice")
     audio_file = request.files.get("file")
     if not audio_file:
@@ -258,7 +258,7 @@ def speech_recognition_route():
 def approve():
     text = request.form.get("reply", "")
     pending_reply = text or pending["reply"] or ""
-    channel_id = pending.get("channel_id") or DISCORD_TEXT_CHANNEL
+    channel_id = pending.get("channel_id") or (DISCORD_TEXT_CHANNEL if DISCORD_TOKEN else None)
 
     if conversation:
         conversation[-1]["reply"] = pending_reply
@@ -269,7 +269,8 @@ def approve():
     pending_tts_discord = audio
     pending_tts_web = audio
 
-    send_to_discord(channel_id, pending_reply)
+    if channel_id and DISCORD_TOKEN:
+        send_to_discord(channel_id, pending_reply)
 
     pending["channel_id"] = None
     pending["reply"] = None
