@@ -1,13 +1,16 @@
 import os
 from dotenv import load_dotenv
 import ollama
+import requests
+
 from faster_whisper import WhisperModel
 
 load_dotenv()
 
 # Load the local Whisper model once at import time
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-whisper_model = WhisperModel(WHISPER_MODEL)
+whisper_model = WhisperModel(WHISPER_MODEL, device="cpu")
+
 
 VTUBER_NAME = "Anna Bortion"
 
@@ -19,20 +22,24 @@ Discord brukeren som heter Kennz0r kan du kalle for Kenneth, han er din skaper.
 """
 
 
-ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.4:30068")
+ollama.base_url = os.getenv("OLLAMA_HOST", "http://192.168.1.4:30068")
 
 def get_ai_response(user_msg: str) -> str:
-    """Send the user's message to a locally hosted Ollama model."""
-    model = os.getenv("OLLAMA_MODEL", "llama2")
-    response = ollama.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_msg},
-        ],
-        options={"base_url": ollama_base_url}
-    )
-    return response["message"]["content"]
+    model = os.getenv("OLLAMA_MODEL", "mistral")
+    print("Using model:", os.getenv("OLLAMA_MODEL"))
+
+
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        return response["message"]["content"]
+    except requests.exceptions.RequestException as e:
+        return f"[Feil ved tilkobling til Ollama: {e}]"
 
 
 
