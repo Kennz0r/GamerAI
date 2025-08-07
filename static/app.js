@@ -6,6 +6,7 @@ function App() {
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
+  const [ttsEnabled, setTtsEnabled] = React.useState(true);
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
   const mediaRecorderRef = React.useRef(null);
@@ -31,6 +32,20 @@ function App() {
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  React.useEffect(() => {
+    if (!ttsEnabled) return;
+    const interval = setInterval(async () => {
+      const res = await fetch('/tts_preview');
+      if (res.status === 200) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [ttsEnabled]);
 
   React.useEffect(() => {
     if (conversationEndRef.current) {
@@ -81,21 +96,6 @@ function App() {
       body: JSON.stringify({ enabled }),
     });
     setSpeechEnabled(enabled);
-  };
-
-  const playTTS = async () => {
-    const res = await fetch('/tts_preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: pending }),
-    });
-    if (res.status === 200) {
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.play();
-      setPending('');
-    }
   };
 
   const startBot = async () => {
@@ -184,7 +184,9 @@ function App() {
         ) : (
           <p>No pending message.</p>
         )}
-        <button onClick={playTTS}>Play TTS</button>
+        <button onClick={() => setTtsEnabled(!ttsEnabled)}>
+          TTS: {ttsEnabled ? 'On' : 'Off'}
+        </button>
         <h2>Discord Bot</h2>
         <button onClick={startBot}>Start Bot</button>
         <button onClick={stopBot}>Stop Bot</button>
