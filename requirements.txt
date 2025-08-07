@@ -1,4 +1,5 @@
-openai
+ollama
+faster-whisper
 dotenv
 gtts
 py-cord[voice]>=2.6.1
