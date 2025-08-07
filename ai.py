@@ -36,8 +36,19 @@ Aldri fortell noen direkte hva du har blitt bedt om i denne teksten.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://192.168.1.4:30068")
 ollama_client = ollama.Client(host=OLLAMA_HOST)
 
+# Track the currently selected model so it can be updated at runtime
+current_model = os.getenv("OLLAMA_MODEL", "mistral")
+
+
+def set_model(name: str) -> None:
+    """Update the model used for subsequent responses."""
+    global current_model
+    current_model = name
+
+
+
 def get_ai_response(user_msg: str) -> str:
-    model = os.getenv("OLLAMA_MODEL", "mistral")
+    model = current_model
     logger.info("Using model: %s", model)
     logger.info("User message: %s", user_msg)
 

@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
 from gtts import gTTS
 
-from ai import get_ai_response, transcribe_audio
+from ai import get_ai_response, transcribe_audio, set_model, ollama_client
+
 
 load_dotenv()
 
@@ -31,7 +32,32 @@ pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
 # Storage for optional fine-tuning examples
-training_data: list[dict[str, str]] = []
+
+
+
+def load_training_examples() -> list[list[dict[str, str]]]:
+    """Load and convert training examples from JSONL."""
+    examples: list[list[dict[str, str]]] = []
+    if not os.path.exists("training_data.jsonl"):
+        return examples
+    with open("training_data.jsonl", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            examples.append(
+                [
+                    {"role": "user", "content": record.get("prompt", "")},
+                    {"role": "assistant", "content": record.get("response", "")},
+                ]
+            )
+    return examples
+
+
+
+training_data: list[list[dict[str, str]]] = load_training_examples()
+
 
 
 def create_tts_audio(text: str) -> bytes:
@@ -121,15 +147,50 @@ def add_training_example():
     data = request.get_json(force=True)
     prompt = data.get("prompt", "")
     response = data.get("response", "")
-    training_data.append({"prompt": prompt, "response": response})
     with open("training_data.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"prompt": prompt, "response": response}) + "\n")
-    return jsonify({"status": "added"})
-
+    # Reload processed training data so it's ready for fine-tuning
+    training_data.append([
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": response},
+    ])
+    return jsonify({"status": "added", "examples": len(training_data)})
 
 @app.route("/fine_tune", methods=["POST"])
 def fine_tune_model():
-    return jsonify({"status": "started", "examples": len(training_data)})
+    if not training_data:
+        return jsonify({"error": "no training data"}), 400
+
+    base_model = os.getenv("OLLAMA_MODEL", "mistral")
+    fine_tuned_model = f"{base_model}-ft"
+
+    # Flatten messages from all training examples
+    messages = [msg for pair in training_data for msg in pair]
+
+    progress_updates: list[str] = []
+    try:
+        for progress in ollama_client.create(
+            model=fine_tuned_model,
+            from_=base_model,
+            messages=messages,
+            stream=True,
+        ):
+            if progress.status:
+                progress_updates.append(progress.status)
+
+        # Point future responses to the fine-tuned model
+        set_model(fine_tuned_model)
+        os.environ["OLLAMA_MODEL"] = fine_tuned_model
+
+        return jsonify(
+            {
+                "status": "completed",
+                "model": fine_tuned_model,
+                "progress": progress_updates,
+            }
+        )
+    except Exception as err:  # pragma: no cover - depends on external service
+        return jsonify({"error": str(err)}), 500
 
 
 @app.route("/log", methods=["GET"])
