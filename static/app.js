@@ -2,7 +2,7 @@ function App() {
   const [conversation, setConversation] = React.useState([]);
   const [pending, setPending] = React.useState('');
   const [recording, setRecording] = React.useState(false);
-  const [textChannelId, setTextChannelId] = React.useState('1285333390643695769');
+  const [textChannelId, setTextChannelId] = React.useState('');
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
@@ -64,7 +64,7 @@ function App() {
       chunksRef.current = [];
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('channel_id', textChannelId);
+      if (textChannelId) formData.append('channel_id', textChannelId);
       formData.append('user_name', userName);
       await fetch('/queue_audio', { method: 'POST', body: formData });
     };
@@ -79,14 +79,15 @@ function App() {
 
   const sendText = async (e) => {
     e.preventDefault();
+    const payload = {
+      user_message: userText,
+      user_name: userName,
+    };
+    if (textChannelId) payload.channel_id = textChannelId;
     await fetch('/queue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channel_id: textChannelId,
-        user_message: userText,
-        user_name: userName,
-      }),
+      body: JSON.stringify(payload),
     });
     setUserText('');
   };
