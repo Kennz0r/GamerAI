@@ -51,9 +51,10 @@ form {
 }
 
 .log-window {
-  white-space: pre-wrap;
-  max-height: 160px; /* Approx 10 lines */
+  white-space: pre;
+  max-height: 400px;
   overflow-y: auto;
+  overflow-x: auto;
   border: 1px solid #444;
   padding: 10px;
   background: #2e2e42;
@@ -70,4 +71,11 @@ form {
 
 .right-panel {
   flex: 1;
+}
+
+.fine-tune-link {
+  color: #61dafb;
+  text-decoration: none;
+  display: inline-block;
+  margin-bottom: 10px;
 }

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fine-Tune Model</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <h1>Fine-Tune LLM</h1>
+    <form id="example-form">
+      <textarea id="prompt" rows="4" cols="50" placeholder="Prompt"></textarea><br />
+      <textarea id="response" rows="4" cols="50" placeholder="Ideal Response"></textarea><br />
+      <button type="submit">Add Training Example</button>
+    </form>
+    <button id="train-btn">Train Model</button>
+    <pre id="train-status"></pre>
+    <script src="/static/train.js"></script>
+  </body>
+</html>

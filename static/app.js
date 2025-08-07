@@ -10,6 +10,7 @@ function App() {
   const [showLog, setShowLog] = React.useState(false);
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
+  const conversationEndRef = React.useRef(null);
 
   React.useEffect(() => {
     const fetchData = () => {
@@ -30,6 +31,12 @@ function App() {
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  React.useEffect(() => {
+    if (conversationEndRef.current) {
+      conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversation]);
 
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -117,6 +124,11 @@ function App() {
     setPending('');
   };
 
+  const clearPending = async () => {
+    await fetch('/pending_message', { method: 'DELETE' });
+    setPending('');
+  };
+
   return (
     <div className="container">
       <div className="left-panel">
@@ -129,6 +141,7 @@ function App() {
               <b>Anna Bortion:</b> {c.reply}
             </p>
           ))}
+          <div ref={conversationEndRef}></div>
         </div>
         <h2>Send Message</h2>
         <form onSubmit={sendText}>
@@ -166,6 +179,7 @@ function App() {
               onChange={e => setPending(e.target.value)}
             ></textarea><br />
             <button type="submit">Send to Discord</button>
+            <button type="button" onClick={clearPending}>Clear</button>
           </form>
         ) : (
           <p>No pending message.</p>
