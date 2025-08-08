@@ -5,3 +5,7 @@ py-cord[voice]>=2.6.1
 flask
 requests
 gTTS
+edge-tts
+pydub
+unidecode
+regex

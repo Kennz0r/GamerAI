@@ -8,9 +8,15 @@ import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
 from gtts import gTTS
-
 from ai import get_ai_response, transcribe_audio, set_model, ollama_client
 
+import asyncio, re
+import regex as reg
+from unidecode import unidecode
+from pydub import AudioSegment, effects
+import io
+import edge_tts
+from flask import Response
 
 load_dotenv()
 
@@ -60,11 +66,128 @@ training_data: list[list[dict[str, str]]] = load_training_examples()
 
 
 
-def create_tts_audio(text: str) -> bytes:
-    tts = gTTS(text=text, lang="no")
+VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
+TTS_RATE  = os.getenv("TTS_RATE", "-6%")   # slightly slower, more natural
+TTS_PITCH = os.getenv("TTS_PITCH", "+0st") # neutral pitch
+
+URL_RE = re.compile(r"https?://\S+")
+CODE_FENCE = re.compile(r"```.*?```", re.S)
+EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
+
+def _normalize_text(txt: str) -> str:
+    # remove code blocks & links
+    txt = CODE_FENCE.sub("", txt)
+    txt = URL_RE.sub("", txt)
+    # strip emojis that TTS mangles
+    txt = EMOJI_RE.sub("", txt)
+    # common chat slang to speech
+    subs = {
+        r"\blol\b": "ha ha",
+        r"\bomg\b": "å herregud",
+        r"\bidk\b": "jeg vet ikke",
+    }
+    for k, v in subs.items():
+        txt = re.sub(k, v, txt, flags=re.I)
+
+    # ensure space after sentence enders
+    txt = re.sub(r"([.!?])([A-ZÆØÅ])", r"\1 \2", txt)
+    # soften ALL CAPS
+    def _soft(m):
+        w = m.group(0)
+        return w.capitalize()
+    txt = re.sub(r"\b[A-ZÆØÅ]{3,}\b", _soft, txt)
+    return txt.strip()
+
+def _split_sentences(txt: str):
+    # conservative sentence split; break very long sentences on commas
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-ZÆØÅ])", txt)
+    out = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if len(p) > 220:
+            chunks = re.split(r",\s+", p)
+            buf = ""
+            for c in chunks:
+                if len(buf) + len(c) < 180:
+                    buf = (buf + ", " + c).strip(", ")
+                else:
+                    if buf: out.append(buf)
+                    buf = c
+            if buf: out.append(buf)
+        else:
+            out.append(p)
+    return out
+
+def _to_ssml(sentences, rate=TTS_RATE, pitch=TTS_PITCH):
+    # small pause after short sentences, longer after long ones
+    parts = []
+    for s in sentences:
+        dur_ms = min(800, max(160, int(len(s) * 4)))
+        parts.append(f"<s>{s}</s><break time='{dur_ms}ms'/>")
+    content = "".join(parts)
+    # NB locale set by voice; content can stay Norwegian
+    return f"""
+<speak version='1.0' xml:lang='nb-NO'>
+  <prosody rate='{rate}' pitch='{pitch}'>
+    {content}
+  </prosody>
+</speak>
+""".strip()
+
+async def _synth_ssml(ssml: str, voice: str) -> bytes:
+    """
+    Works with both new and old edge-tts:
+    - New: Communicate(text=..., voice=..., ssml=True)
+    - Old: No ssml kwarg -> we strip tags to plain text
+    """
     buf = io.BytesIO()
-    tts.write_to_fp(buf)
+    try:
+        # Newer edge-tts supports ssml flag
+        communicate = edge_tts.Communicate(text=ssml, voice=voice, ssml=True)
+    except TypeError:
+        # Old version: strip tags; no SSML support
+        plain = re.sub(r"<[^>]+>", " ", ssml)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        print("[TTS] Using legacy edge-tts without SSML (update recommended).")
+        communicate = edge_tts.Communicate(text=plain, voice=voice)
+
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            buf.write(chunk["data"])
     return buf.getvalue()
+
+def _polish_audio(mp3_bytes: bytes) -> bytes:
+    # normalize, trim a bit of head/tail silence so clips match loudness
+    audio = AudioSegment.from_file(io.BytesIO(mp3_bytes), format="mp3")
+    trimmed = effects.strip_silence(audio, silence_len=150, silence_thresh=audio.dBFS-20)
+    normalized = effects.normalize(trimmed)
+    out = io.BytesIO()
+    normalized.export(out, format="mp3", bitrate="128k")
+    return out.getvalue()
+
+# --- REPLACE your existing create_tts_audio with this ---
+def create_tts_audio(text: str) -> bytes:
+    clean = _normalize_text(text)
+    sentences = _split_sentences(clean) or [clean or ""]
+    ssml = _to_ssml(sentences)
+    try:
+        mp3_raw = asyncio.run(_synth_ssml(ssml, VOICE_NAME))
+        try:
+            # Try polish; if ffmpeg/pydub missing, return raw Edge audio
+            return _polish_audio(mp3_raw)
+        except Exception as e:
+            print("[TTS] Pydub/ffmpeg failed; returning raw Edge-TTS audio:", e)
+            return mp3_raw
+    except Exception as e:
+        print("[TTS] Edge-TTS failed, falling back to gTTS:", e)
+        try:
+            tts = gTTS(text=clean or text, lang="no")
+            b = io.BytesIO(); tts.write_to_fp(b); return b.getvalue()
+        except Exception as e2:
+            print("[TTS] gTTS also failed:", e2)
+            return b""
 
 
 def send_to_discord(channel_id: str, text: str) -> None:
@@ -289,25 +412,44 @@ def get_tts_audio():
     if pending_tts_discord:
         data = pending_tts_discord
         pending_tts_discord = None
-        return data, 200, {"Content-Type": "audio/mpeg"}
+        resp = Response(data, mimetype="audio/mpeg")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     return ("", 204)
+
 
 
 @app.route("/tts_preview", methods=["GET", "POST"])
 def get_tts_preview():
-    global pending_tts_web
+    global pending_tts_web, VOICE_NAME, TTS_RATE, TTS_PITCH
     if request.method == "POST":
         data = request.get_json(force=True)
-        text = data.get("text", "")
-        audio = create_tts_audio(text)
-        # Clear pending message after generating preview
+        text  = data.get("text", "")
+        voice = data.get("voice") or VOICE_NAME
+        rate  = data.get("rate")  or TTS_RATE
+        pitch = data.get("pitch") or TTS_PITCH
+
+        # Temporarily override for this call
+        old_v, old_r, old_p = VOICE_NAME, TTS_RATE, TTS_PITCH
+        VOICE_NAME, TTS_RATE, TTS_PITCH = voice, rate, pitch
+        try:
+            audio = create_tts_audio(text)
+        finally:
+            VOICE_NAME, TTS_RATE, TTS_PITCH = old_v, old_r, old_p
+
         pending["channel_id"] = None
         pending["reply"] = None
-        return audio, 200, {"Content-Type": "audio/mpeg"}
+        resp = Response(audio, mimetype="audio/mpeg")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     if pending_tts_web:
         data = pending_tts_web
         pending_tts_web = None
-        return data, 200, {"Content-Type": "audio/mpeg"}
+        resp = Response(data, mimetype="audio/mpeg")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     return ("", 204)
 
 
