@@ -827,6 +827,39 @@ def get_voice_command():
     return jsonify({})
 
 
+@app.route("/piper_settings", methods=["GET", "POST"])
+def piper_settings():
+    """Return or update Piper TTS voice settings."""
+    mapping = {
+        "voice": "PIPER_VOICE",
+        "rate": "PIPER_RATE",
+        "pitch_st": "PIPER_PITCH_ST",
+        "atempo": "PIPER_ATEMPO",
+        "length_scale": "PIPER_LENGTH_SCALE",
+        "noise_scale": "PIPER_NOISE_SCALE",
+        "noise_w": "PIPER_NOISE_W",
+    }
+
+    defaults = {
+        "voice": "",
+        "rate": "1.0",
+        "pitch_st": "0",
+        "atempo": "1.0",
+        "length_scale": "0.95",
+        "noise_scale": "0.5",
+        "noise_w": "0.7",
+    }
+
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        for key, env_key in mapping.items():
+            if key in data:
+                os.environ[env_key] = str(data[key])
+
+    current = {k: os.getenv(env_key, defaults[k]) for k, env_key in mapping.items()}
+    return jsonify(current)
+
+
 @app.route("/discord_bot", methods=["POST"])
 def control_discord_bot():
     global discord_bot_process

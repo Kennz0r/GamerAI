@@ -9,6 +9,15 @@ function App() {
   const [ttsEnabled, setTtsEnabled] = React.useState(true);
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
+  const [piperSettings, setPiperSettings] = React.useState({
+    voice: '',
+    rate: '1.0',
+    pitch_st: '0',
+    atempo: '1.0',
+    length_scale: '0.95',
+    noise_scale: '0.5',
+    noise_w: '0.7'
+  });
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
   const conversationEndRef = React.useRef(null);
@@ -27,6 +36,9 @@ function App() {
       fetch('/log')
         .then(res => res.json())
         .then(data => setLog(data.log));
+      fetch('/piper_settings')
+        .then(res => res.json())
+        .then(data => setPiperSettings(data));
     };
     fetchData();
     const interval = setInterval(fetchData, 2000);
@@ -99,6 +111,18 @@ function App() {
       body: JSON.stringify({ enabled }),
     });
     setSpeechEnabled(enabled);
+  };
+
+  const updatePiperSetting = (field, value) => {
+    setPiperSettings(ps => ({ ...ps, [field]: value }));
+  };
+
+  const savePiperSettings = async () => {
+    await fetch('/piper_settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(piperSettings),
+    });
   };
 
   const startBot = async () => {
@@ -240,6 +264,66 @@ function App() {
           <input type="hidden" name="action" value="leave" />
           <button type="submit">Leave Voice</button>
         </form>
+        <h2>Piper Voice Settings</h2>
+        <div className="piper-settings">
+          <label>
+            Voice:
+            <input
+              type="text"
+              value={piperSettings.voice}
+              onChange={e => updatePiperSetting('voice', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Rate:
+            <input
+              type="text"
+              value={piperSettings.rate}
+              onChange={e => updatePiperSetting('rate', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Pitch ST:
+            <input
+              type="text"
+              value={piperSettings.pitch_st}
+              onChange={e => updatePiperSetting('pitch_st', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Atempo:
+            <input
+              type="text"
+              value={piperSettings.atempo}
+              onChange={e => updatePiperSetting('atempo', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Length Scale:
+            <input
+              type="text"
+              value={piperSettings.length_scale}
+              onChange={e => updatePiperSetting('length_scale', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Noise Scale:
+            <input
+              type="text"
+              value={piperSettings.noise_scale}
+              onChange={e => updatePiperSetting('noise_scale', e.target.value)}
+            />
+          </label><br />
+          <label>
+            Noise W:
+            <input
+              type="text"
+              value={piperSettings.noise_w}
+              onChange={e => updatePiperSetting('noise_w', e.target.value)}
+            />
+          </label><br />
+          <button type="button" onClick={savePiperSettings}>Save</button>
+        </div>
         <h2>Microphone</h2>
         <button onClick={recording ? stopRecording : startRecording}>
           {recording ? 'Stop Recording' : 'Record Mic'}
