@@ -176,6 +176,22 @@ def add_training_example():
     ])
     return jsonify({"status": "added", "examples": len(training_data)})
 
+
+@app.route("/conversation_training", methods=["POST"])
+def conversation_training():
+    if not conversation:
+        return jsonify({"status": "no_conversation", "examples": len(training_data)})
+    count = 0
+    with open("training_data.jsonl", "a", encoding="utf-8") as f:
+        for c in conversation:
+            f.write(json.dumps({"prompt": c.get("user_message", ""), "response": c.get("reply", "")}) + "\n")
+            training_data.append([
+                {"role": "user", "content": c.get("user_message", "")},
+                {"role": "assistant", "content": c.get("reply", "")},
+            ])
+            count += 1
+    return jsonify({"status": "added", "examples": len(training_data), "from_conversation": count})
+
 @app.route("/fine_tune", methods=["POST"])
 def fine_tune_model():
     if not training_data:

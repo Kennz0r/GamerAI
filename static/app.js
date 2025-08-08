@@ -132,6 +132,12 @@ function App() {
     setPending('');
   };
 
+  const sendConversationToTraining = async () => {
+    const res = await fetch('/conversation_training', { method: 'POST' });
+    const data = await res.json();
+    alert(JSON.stringify(data));
+  };
+
   return (
     <div className="container">
       <div className="left-panel">
@@ -146,6 +152,7 @@ function App() {
           ))}
           <div ref={conversationEndRef}></div>
         </div>
+        <button onClick={sendConversationToTraining}>Use Conversation for Training</button>
         <h2>Send Message</h2>
         <form onSubmit={sendText}>
           <input
