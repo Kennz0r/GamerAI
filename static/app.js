@@ -114,12 +114,18 @@ function App() {
   };
 
   const updateDiscordEnabled = async enabled => {
-    await fetch('/discord_send', {
+    const res = await fetch('/discord_send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     });
-    setDiscordEnabled(enabled);
+    let data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = { enabled };
+    }
+    setDiscordEnabled(!!data.enabled);
   };
 
   const updatePiperSetting = (field, value) => {
