@@ -44,6 +44,16 @@ DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
+def resolve_discord_name(user_id: str) -> str:
+    if not user_id or not DISCORD_TOKEN:
+        return user_id
+    url = f"{DISCORD_API_BASE}/users/{user_id}"
+    headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+    r = requests.get(url, headers=headers, timeout=10)
+    if r.status_code == 200:
+        return r.json().get("global_name") or r.json().get("username", user_id)
+    return user_id
+
 # --- Edge-TTS config ---
 VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
 TTS_RATE  = os.getenv("TTS_RATE", "0%")   # slightly slower, more natural
@@ -67,7 +77,6 @@ CODE_FENCE = re.compile(r"```.*?```", re.S)
 EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
 
 app = Flask(__name__)
-
 pending = {"channel_id": None, "reply": None}
 voice_command = {"action": None, "channel_id": None}
 conversation = []
@@ -531,7 +540,15 @@ def queue_message():
     channel_id = data.get("channel_id") or default_channel
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
-    reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
+    user_id = (data.get("user_id") or "").strip() or None 
+    guild_id = (data.get("guild_id") or "").strip() or None
+
+    reply_raw = get_ai_response(
+    f"{user_name} sier: {user_message}",
+    user_id=user_id,
+    user_name=user_name,
+    guild_id=guild_id
+)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
     else:
@@ -541,7 +558,9 @@ def queue_message():
        voice_command["channel_id"] = data.get("channel_id")
        print(f"[Voice Command] Leave triggered by {user_name} (text)")
        return {"status": "voice_command", "command": "leave"}
+
     conversation.append({
+        "user_id": user_id,                      # <-- keep track
         "user_name": user_name,
         "user_message": user_message,
         "reply": reply,
@@ -571,7 +590,9 @@ def queue_message():
 def queue_audio():
     default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
     channel_id = request.form.get("channel_id") or default_channel
-    user_name = request.form.get("user_name", "Voice")
+    user_name = request.form.get("user_name", "FAEEEEEN")
+    user_id = (request.form.get("user_id") or "").strip() or None
+    guild_id   = (request.form.get("guild_id") or "").strip() or None
     audio_file = request.files.get("file")
     if not audio_file:
         return {"error": "no file"}, 400
@@ -591,10 +612,15 @@ def queue_audio():
     finally:
         os.remove(path)
 
-    if not user_message.strip():
-        return {"status": "ignored"}
+        if not user_message.strip():
+            return {"status": "ignored"}
 
-    reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
+    reply_raw = get_ai_response(
+    f"{user_name} sier: {user_message}",
+    user_id=user_id,
+    user_name=user_name,
+    guild_id=guild_id,   
+)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
     else:
@@ -607,6 +633,7 @@ def queue_audio():
         print(f"[Voice Command] Leave triggered by {user_name} (voice)")
         return {"status": "voice_command", "command": "leave"}
     conversation.append({
+        "user_id": user_id,                      # <-- keep track
         "user_name": user_name,
         "user_message": user_message,
         "reply": reply,

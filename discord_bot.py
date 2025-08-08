@@ -16,6 +16,7 @@ WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5002")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 try:
     import discord.sinks  # type: ignore
@@ -35,7 +36,8 @@ else:
 
 
 
-async def send_to_web(channel_id: int, user_message: str, user_name: str) -> None:
+async def send_to_web(channel_id: int, user_message: str, user_name: str,
+                      user_id: str | None = None, guild_id: str | None = None) -> None:
     def _post():
         try:
             requests.post(
@@ -44,6 +46,8 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str) -> Non
                     "channel_id": channel_id,
                     "user_message": user_message,
                     "user_name": user_name,
+                    "user_id": user_id,
+                    "guild_id": guild_id,  # <--
                 },
                 timeout=5,
             )
@@ -53,26 +57,46 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str) -> Non
 
 
 
-async def send_audio(data: bytes, user_name: str) -> None:
+async def send_audio(data: bytes, user_name: str,
+                     user_id: int | None = None, guild_id: str | None = None) -> None:
     def _post():
         try:
             files = {"file": ("audio.mp3", data, "audio/mpeg")}
             requests.post(
                 f"{WEB_SERVER_URL}/queue_audio",
-                data={"channel_id": DISCORD_TEXT_CHANNEL, "user_name": user_name},
+                data={
+                    "channel_id": DISCORD_TEXT_CHANNEL,
+                    "user_name": user_name,
+                    "user_id": str(user_id or ""),
+                    "guild_id": guild_id or "",  # <--
+                },
                 files=files,
                 timeout=360,
             )
         except Exception as e:
             print(f"Error sending audio: {e}")
-
     await asyncio.to_thread(_post)
 
+
+
 async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
-    """Callback when a recording chunk is finished."""
-    for user, audio in getattr(sink, "audio_data", {}).items():
-        name = getattr(user, "name", str(user))
-        await send_audio(audio.file.getvalue(), name)
+    for u, audio in getattr(sink, "audio_data", {}).items():
+        # resolve name & user_id like we did previously...
+        if isinstance(u, (discord.Member, discord.User)):
+            user_id = u.id
+            name = getattr(u, "display_name", None) or u.name
+        else:
+            user_id = int(u)
+            member = vc.guild.get_member(user_id) if vc.guild else None
+            name = (getattr(member, "display_name", None)
+                    or getattr(member, "name", None)
+                    or str(user_id))
+
+        guild_id = str(vc.guild.id) if vc.guild else None  # <--
+        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id)
+
+
+
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
@@ -185,7 +209,9 @@ async def on_message(message):
 
     content = message.content.lower()
     if bot.user.mentioned_in(message) or content.startswith("anna"):
-        await send_to_web(message.channel.id, message.content, str(message.author))
+        await send_to_web(
+            message.channel.id, message.content, message.author.display_name, user_id=message.author.id, guild_id=str(message.guild.id) if message.guild else None,  # <--
+        )
 
 
 if __name__ == "__main__":
