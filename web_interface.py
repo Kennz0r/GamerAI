@@ -194,21 +194,30 @@ def rate_prompt():
     rating = data.get("rating")
     if not isinstance(index, int) or index < 0 or index >= len(conversation):
         return jsonify({"error": "invalid index"}), 400
-    conversation[index]["rating"] = rating
+    if rating not in ("up", "down"):
+        return jsonify({"error": "invalid rating"}), 400
+    entry = conversation[index]
+    entry["rating"] = rating
     if rating == "up":
-        entry = conversation[index]
         with open("training_data.jsonl", "a", encoding="utf-8") as f:
             f.write(
-                json.dumps({
-                    "prompt": entry.get("user_message", ""),
-                    "response": entry.get("reply", ""),
-                })
+                json.dumps(
+                    {
+                        "prompt": entry.get("user_message", ""),
+                        "response": entry.get("reply", ""),
+                    }
+                )
                 + "\n"
             )
-        training_data.append([
-            {"role": "user", "content": entry.get("user_message", "")},
-            {"role": "assistant", "content": entry.get("reply", "")},
-        ])
+        training_data.append(
+            [
+                {"role": "user", "content": entry.get("user_message", "")},
+                {"role": "assistant", "content": entry.get("reply", "")},
+            ]
+        )
+    else:
+        # Drop negatively rated entries so they aren't used for future training
+        conversation.pop(index)
     return jsonify({"status": "ok", "rating": rating})
 
 
