@@ -8,6 +8,7 @@ function App() {
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
   const [discordEnabled, setDiscordEnabled] = React.useState(true);
   const [ttsEnabled, setTtsEnabled] = React.useState(true);
+  const [discordEnabled, setDiscordEnabled] = React.useState(true);
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
   const [piperSettings, setPiperSettings] = React.useState({
