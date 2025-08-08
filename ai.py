@@ -23,6 +23,7 @@ USER_PROFILES: dict[str, dict] = {}     # user_id -> {name, aliases, first_seen,
 USER_MEMORIES: dict[str, list[dict]] = {}  # user_id -> chat messages (system-free)
 MAX_TURNS = 8  # how many pairs to keep for recency (we’ll also keep a summary)
 USER_SUMMARIES: dict[str, str] = {}     # user_id -> concise summary of history/preferences
+LAST_SUMMARY_LEN: dict[str, int] = {}   # user_id -> history length when summary last generated
 _store_lock = threading.Lock()
 # Load the local Whisper model once at import time. Attempt GPU first and
 # gracefully fall back to CPU if CUDA/cuDNN is unavailable.
@@ -57,12 +58,16 @@ def _load_guilds():
     except Exception as e:
         print(f"[MEM] Failed loading {GUILDS_FILE}: {e}")
 
-def _save_guilds():
+def _write_guilds():
     with open(GUILDS_FILE, "w", encoding="utf-8") as f:
         json.dump(GUILD_ROSTER, f, ensure_ascii=False, indent=2)
 
+
+def _save_guilds():
+    threading.Thread(target=_write_guilds, daemon=True).start()
+
 _load_guilds()
-atexit.register(_save_guilds)
+atexit.register(_write_guilds)
 
 THIRTY_DAYS = 30 * 24 * 60 * 60
 
@@ -127,19 +132,28 @@ def _load_store():
         except Exception as e:
             print(f"[MEM] Failed loading {path}: {e}")
 
-def _save_profiles():
+def _write_profiles():
     with _store_lock:
         with open(PROFILES_FILE, "w", encoding="utf-8") as f:
             json.dump(USER_PROFILES, f, ensure_ascii=False, indent=2)
 
-def _save_memories():
+
+def _save_profiles():
+    threading.Thread(target=_write_profiles, daemon=True).start()
+
+
+def _write_memories():
     with _store_lock:
         with open(MEM_FILE, "w", encoding="utf-8") as f:
             json.dump({"memories": USER_MEMORIES, "summaries": USER_SUMMARIES}, f, ensure_ascii=False, indent=2)
 
+
+def _save_memories():
+    threading.Thread(target=_write_memories, daemon=True).start()
+
 _load_store()
-atexit.register(_save_profiles)
-atexit.register(_save_memories)
+atexit.register(_write_profiles)
+atexit.register(_write_memories)
 
 
 def remember_user(user_id: str, user_name: str | None = None):
@@ -183,6 +197,7 @@ def _summarize_history(user_id: str):
         )
         summary = resp["message"]["content"].strip()
         USER_SUMMARIES[user_id] = summary
+        LAST_SUMMARY_LEN[user_id] = len(hist)
         _save_memories()
     except Exception as e:
         print("[MEM] summarize failed:", e)
@@ -317,8 +332,8 @@ def get_ai_response(
             ]
             USER_MEMORIES[user_id] = hist[-(MAX_TURNS * 2):]
             _save_memories()
-            if len(hist) >= MAX_TURNS * 2:
-                _summarize_history(user_id)
+            if len(hist) - LAST_SUMMARY_LEN.get(user_id, 0) >= (MAX_TURNS * 2):
+                threading.Thread(target=_summarize_history, args=(user_id,), daemon=True).start()
 
         logger.info("Anna Bortion (action=%s): %s", action, reply)
         return reply, action
