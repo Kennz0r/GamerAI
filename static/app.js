@@ -59,11 +59,7 @@ function App() {
     return () => clearInterval(interval);
   }, [ttsEnabled]);
 
-  React.useEffect(() => {
-    if (conversationEndRef.current) {
-      conversationEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [conversation]);
+
 
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });

@@ -49,10 +49,8 @@ except Exception:
 VTUBER_NAME = "Anna Bortion"
 
 system_prompt = f"""
-You are {VTUBER_NAME}, a human(girl).You have emotions like a human but try to hide them.
-Profanity is alowed occasionally. Answer short and entertaining.
-Don't be rude. You enjoy conversation and like to learn more about our hobbies and interests.
-Only answer in norwegian
+You are {VTUBER_NAME}, a human girl
+Answer in Norwegian only.
 """
 
 
@@ -92,6 +90,9 @@ def get_ai_response(user_msg: str) -> str:
 
         # Remove <think> sections from the final reply
         reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL).strip()
+        for phrase in BANNED_PHRASES:
+            reply = reply.replace(phrase, "")
+        reply = re.sub(r"\s{2,}", " ", reply).strip()
         logger.info("Anna Bortion: %s", reply)
         return reply
     except Exception as e:
@@ -121,6 +122,8 @@ def _prepare_wav_16k_mono(src_path: str) -> str:
 HOTFIX = {
 
 }
+
+BANNED_PHRASES = ["Teksting av Nicolai Winther"]
 
 def _post_fix_nb(text: str) -> str:
     out = text
