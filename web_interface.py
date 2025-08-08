@@ -811,8 +811,11 @@ def discord_send_route():
     global discord_send_enabled
     if request.method == "GET":
         return jsonify({"enabled": discord_send_enabled})
-    data = request.get_json(force=True)
-    discord_send_enabled = bool(data.get("enabled", True))
+    data = request.get_json(force=True) or {}
+    val = data.get("enabled", True)
+    if isinstance(val, str):
+        val = val.lower() in ("true", "1", "yes", "on")
+    discord_send_enabled = bool(val)
     return jsonify({"enabled": discord_send_enabled})
 
 
