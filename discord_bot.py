@@ -53,13 +53,13 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str) -> Non
 
 
 
-async def send_audio(data: bytes) -> None:
+async def send_audio(data: bytes, user_name: str) -> None:
     def _post():
         try:
             files = {"file": ("audio.mp3", data, "audio/mpeg")}
             requests.post(
                 f"{WEB_SERVER_URL}/queue_audio",
-                data={"channel_id": DISCORD_TEXT_CHANNEL},
+                data={"channel_id": DISCORD_TEXT_CHANNEL, "user_name": user_name},
                 files=files,
                 timeout=360,
             )
@@ -70,8 +70,9 @@ async def send_audio(data: bytes) -> None:
 
 async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
     """Callback when a recording chunk is finished."""
-    for audio in getattr(sink, "audio_data", {}).values():
-        await send_audio(audio.file.getvalue())
+    for user, audio in getattr(sink, "audio_data", {}).items():
+        name = getattr(user, "name", str(user))
+        await send_audio(audio.file.getvalue(), name)
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
