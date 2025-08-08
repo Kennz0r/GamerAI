@@ -235,7 +235,12 @@ function App() {
               }
             }}
           ></textarea><br />
-          <button type="submit">Send to AI</button>
+          <div className="send-controls">
+            <button type="submit">Send to AI</button>
+            <button type="button" onClick={recording ? stopRecording : startRecording}>
+              {recording ? 'Stop Recording' : 'Record Mic'}
+            </button>
+          </div>
         </form>
       </div>
       <div className="right-panel">
@@ -343,10 +348,6 @@ function App() {
           </label><br />
           <button type="button" onClick={savePiperSettings}>Save</button>
         </div>
-        <h2>Microphone</h2>
-        <button onClick={recording ? stopRecording : startRecording}>
-          {recording ? 'Stop Recording' : 'Record Mic'}
-        </button>
         <h2>Log</h2>
         <button onClick={() => setShowLog(!showLog)}>
           {showLog ? 'Hide Log' : 'Show Log'}
