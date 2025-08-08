@@ -7,4 +7,3 @@ requests
 edge-tts>=6.0
 pydub
 unidecode
-regex

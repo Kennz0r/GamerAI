@@ -1,42 +1,70 @@
 import os
 import io
 import subprocess
-import sys, inspect
+import sys
 import signal
 import json
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
 from ai import get_ai_response, transcribe_audio, set_model, ollama_client
-
+import tempfile
+import torch
 import asyncio, re
 import regex as reg
 from unidecode import unidecode
 from pydub import AudioSegment, effects
-import io
 import edge_tts
 from flask import Response
+import logging
+import warnings
+import torchaudio
+import math
+import wave
+
 
 load_dotenv()
+
+torch.set_float32_matmul_precision("high")
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"  # hush Transformers info/warns
+logging.getLogger("transformers").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message="The attention mask is not set")
+
+if hasattr(torch, "load"):
+    _orig_load = torch.load
+    def _load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return _orig_load(*args, **kwargs)
+    torch.load = _load
+    print("[TTS] Patched torch.load to weights_only=False")
+
 
 DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
+# --- Edge-TTS config ---
 VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
 TTS_RATE  = os.getenv("TTS_RATE", "0%")   # slightly slower, more natural
 TTS_PITCH = os.getenv("TTS_PITCH", "+0Hz") # neutral pitch
 
-URL_RE = re.compile(r"https?://\S+")
-CODE_FENCE = re.compile(r"```.*?```", re.S)
-EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
-
 # --- ElevenLabs config ---
-TTS_PROVIDER = os.getenv("TTS_PROVIDER", "elevenlabs").lower()
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "coqui").lower()
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY", "").strip()
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "").strip()
 ELEVEN_VOICE_NAME = os.getenv("ELEVEN_VOICE_NAME", "").strip()
 ELEVEN_MODEL_ID = os.getenv("ELEVEN_MODEL_ID", "eleven_multilingual_v2")
+
+# --- Coqui TTS config ---
+COQUI_MODEL = os.getenv("COQUI_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2")
+COQUI_LANGUAGE = os.getenv("COQUI_LANGUAGE", "no")
+COQUI_SPEAKER_WAV = os.getenv("COQUI_SPEAKER_WAV", "").strip()
+
+
+URL_RE = re.compile(r"https?://\S+")
+CODE_FENCE = re.compile(r"```.*?```", re.S)
+EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
 
 app = Flask(__name__)
 
@@ -52,15 +80,6 @@ pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
 # Storage for optional fine-tuning examples
-
-try:
-    print("[TTS] Python:", sys.executable)
-    import edge_tts
-    print("[TTS] edge-tts file:", edge_tts.__file__)
-    from inspect import signature
-    print("[TTS] edge-tts Communicate params:", list(signature(edge_tts.Communicate).parameters.keys()))
-except Exception as e:
-    print("[TTS] edge-tts introspection failed:", e)
 
 def load_training_examples() -> list[list[dict[str, str]]]:
     """Load and convert training examples from JSONL."""
@@ -112,6 +131,190 @@ def _normalize_text(txt: str) -> str:
         return w.capitalize()
     txt = re.sub(r"\b[A-ZÆØÅ]{3,}\b", _soft, txt)
     return txt.strip()
+
+
+
+def _ffmpeg_pitch_and_speed(in_wav: str, out_wav: str, semitones: float = 0.0, atempo: float = 1.0):
+    """
+    Pitch shift by N semitones and optionally change speed.
+    Uses rubberband if available; otherwise falls back to asetrate+aresample+atempo.
+    """
+    pitch_factor = 2 ** (semitones / 12.0) if semitones else 1.0
+
+    # 1) Try rubberband (your ffmpeg build shows --enable-librubberband)
+    rb_filter = f"rubberband=pitch={pitch_factor:.6f}:tempo={atempo:.6f}"
+    cmd = ["ffmpeg", "-y", "-i", in_wav, "-filter:a", rb_filter, out_wav]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if res.returncode == 0:
+        return  # done
+
+    # 2) Fallback: asetrate+aresample+atempo (needs numeric SR)
+    with wave.open(in_wav, "rb") as wf:
+        sr = wf.getframerate()
+
+    # asetrate changes pitch & speed; compensate speed with atempo=1/pitch_factor,
+    # and then apply user atempo on top
+    total_atempo = (1.0 / pitch_factor) * (atempo if atempo else 1.0)
+
+    def _chain_atempo(val: float) -> str:
+        # make sure each atempo is in [0.5, 2.0]
+        chain = []
+        remaining = val
+        while remaining < 0.5 or remaining > 2.0:
+            step = 2.0 if remaining > 2.0 else 0.5
+            chain.append(step)
+            remaining /= step
+        if abs(remaining - 1.0) > 1e-6:
+            chain.append(remaining)
+        return ",".join(f"atempo={x:.6f}" for x in chain)
+
+    filters = [f"asetrate={int(sr * pitch_factor)}", f"aresample={sr}"]
+    atempo_chain = _chain_atempo(total_atempo)
+    if atempo_chain:
+        filters.append(atempo_chain)
+    afilter = ",".join(filters)
+
+    cmd = ["ffmpeg", "-y", "-i", in_wav, "-filter:a", afilter, out_wav]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg pitch/speed failed (fallback): {res.stderr.decode('utf-8', errors='ignore')}")
+
+
+
+
+def _tts_piper(text: str) -> bytes:
+    exe = os.getenv("PIPER_EXE")
+    voice = os.getenv("PIPER_VOICE")
+    cfg = os.getenv("PIPER_VOICE_CFG")
+    rate = os.getenv("PIPER_RATE", "1.0")
+    pitch_st = float(os.getenv("PIPER_PITCH_ST", "0"))   # e.g. 3
+    atempo = float(os.getenv("PIPER_ATEMPO", "1.0"))     # e.g. 1.08
+
+    if not (exe and voice and cfg):
+        raise RuntimeError("Piper not configured in .env")
+
+    # 1) Prepare temp file for Piper output
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpwav:
+        raw_wav = tmpwav.name
+
+    try:
+        # 2) Run Piper → raw_wav
+        cmd = [
+        exe, "-m", voice, "-c", cfg, "-s", rate, "-f", raw_wav,
+        "--length_scale", os.getenv("PIPER_LENGTH_SCALE", "0.95"),
+        "--noise_scale", os.getenv("PIPER_NOISE_SCALE", "0.5"),
+        "--noise_w",     os.getenv("PIPER_NOISE_W", "0.7"),
+]
+        p = subprocess.run(cmd, input=text.encode("utf-8"),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if p.returncode != 0 or not os.path.exists(raw_wav):
+            raise RuntimeError(f"Piper failed: {p.stderr.decode('utf-8', errors='ignore')}")
+
+        # 3) Optional pitch/speed shaping
+        shaped_wav = raw_wav
+        if pitch_st or (abs(atempo - 1.0) > 1e-6):
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp2:
+                shaped_wav = tmp2.name
+            _ffmpeg_pitch_and_speed(raw_wav, shaped_wav, semitones=pitch_st, atempo=atempo)
+
+        # 4) Convert to mono, 16 kHz, MP3 for Discord/web
+        seg = AudioSegment.from_file(shaped_wav, format="wav")
+        seg = seg.set_channels(1).set_frame_rate(16000)
+        out = io.BytesIO()
+        seg.export(out, format="mp3", bitrate="96k")
+        return out.getvalue()
+
+    finally:
+        # Cleanup
+        try:
+            os.remove(raw_wav)
+        except:
+            pass
+        try:
+            if 'shaped_wav' in locals() and shaped_wav != raw_wav:
+                os.remove(shaped_wav)
+        except:
+            pass
+
+
+_coqui_model = None
+
+
+def _coqui_ensure_model():
+    global _coqui_model
+    if _coqui_model is not None:
+        return _coqui_model
+    from TTS.api import TTS
+    import torch
+
+    print(f"[TTS] Loading Coqui model: {COQUI_MODEL}")
+    _coqui_model = TTS(model_name=COQUI_MODEL)
+
+    if torch.cuda.is_available():
+        print("[TTS] Moving model to GPU...")
+        _coqui_model.to("cuda")
+    else:
+        print("[TTS] GPU not available, using CPU.")
+
+    # --- PATCH tokenizer to always give attention_mask ---
+    try:
+        tok = getattr(_coqui_model, "tokenizer", None)
+        if tok:
+            orig_call = tok.__call__
+            def call_with_mask(*args, **kwargs):
+                kwargs.setdefault("return_attention_mask", True)
+                return orig_call(*args, **kwargs)
+            tok.__call__ = call_with_mask
+            print("[Patch] Coqui tokenizer now always returns attention_mask.")
+    except Exception as e:
+        print("[Patch] Could not patch tokenizer:", e)
+
+    return _coqui_model
+
+def _tts_coqui(text: str) -> bytes:
+    model = _coqui_ensure_model()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        base = {"text": text, "file_path": tmp_path}
+
+        if COQUI_SPEAKER_WAV and os.path.exists(COQUI_SPEAKER_WAV):
+            base["speaker_wav"] = COQUI_SPEAKER_WAV
+        else:
+            raise RuntimeError("Coqui XTTS needs a speaker_wav. Set COQUI_SPEAKER_WAV in .env.")
+
+        # Use English (you said no mapping)
+        base["language"] = "en"
+
+        # 1) Synthesize at model's native sample rate
+        model.tts_to_file(**base)
+
+        # 2) Load the wav, resample to 16 kHz properly, then MP3 encode
+        wav, sr = torchaudio.load(tmp_path)       # wav shape: [channels, samples]
+        target_sr = 16000
+        if sr != target_sr:
+            wav = torchaudio.functional.resample(wav, sr, target_sr)
+
+        # Convert to mono if needed
+        if wav.size(0) > 1:
+            wav = wav.mean(dim=0, keepdim=True)
+
+        # Save a temp resampled wav and export to mp3 via pydub/ffmpeg
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as rs_wav:
+            rs_path = rs_wav.name
+        try:
+            torchaudio.save(rs_path, wav, target_sr)  # proper resampled WAV
+            seg = AudioSegment.from_file(rs_path, format="wav")
+            out = io.BytesIO()
+            seg.export(out, format="mp3", bitrate="64k")
+            return out.getvalue()
+        finally:
+            try: os.remove(rs_path)
+            except: pass
+
+    finally:
+        try: os.remove(tmp_path)
+        except: pass
 
 def _eleven_fetch_voice(voice_id: str) -> dict:
     r = requests.get(
@@ -280,28 +483,32 @@ def _polish_audio(mp3_bytes: bytes) -> bytes:
 def create_tts_audio(text: str) -> bytes:
     try:
         clean = _normalize_text(text)[:1200]
-        # ElevenLabs handles long strings fine; chunking still helps cadence
         sentences = _split_sentences(clean) or [clean or ""]
-        plain = " ".join(sentences)
+        plain = ". ".join(sentences)
 
-        if TTS_PROVIDER == "elevenlabs":
-            mp3_raw = _tts_elevenlabs(plain)
+        provider = os.getenv("TTS_PROVIDER", "").lower()
+
+        if provider == "piper":
+            return _tts_piper(plain)
+        elif provider == "coqui":
+            return _tts_coqui(plain)
         else:
-            # fallback to your existing Edge path if you keep it
+            # Edge TTS fallback if you keep it around
             ssml = _to_ssml(sentences)
             mp3_raw = asyncio.run(_synth_ssml(ssml, VOICE_NAME))
 
-        if not mp3_raw:
-            return b""
-        try:
-            return _polish_audio(mp3_raw)
-        except Exception as e:
-            print("[TTS] Post-process failed; returning raw audio:", e)
-            return mp3_raw
-    except Exception as e:
-        print("[TTS] TTS error:", e)
-        return b""
+            if not mp3_raw:
+                return b""
 
+            try:
+                return _polish_audio(mp3_raw)  # your existing normalize/trim
+            except Exception as e:
+                print("[TTS] Post-process failed; returning raw audio:", e)
+                return mp3_raw
+
+    except Exception as e:
+        print("[TTS] Error in create_tts_audio:", e)
+        return b""
 
 
 

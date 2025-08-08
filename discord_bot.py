@@ -137,13 +137,13 @@ async def poll_voice():
             return {}
 
     data = await asyncio.to_thread(_get)
-    print(f"📡 poll_voice received: {data}")
+    #print(f"poll_voice received: {data}")
 
     action = data.get("action")
     channel_id = data.get("channel_id")
 
     if action == "join" and channel_id:
-        print(f"➡️ Trying to join voice channel {channel_id}")
+        print(f"Trying to join voice channel {channel_id}")
         channel = None
         for guild in bot.guilds:
             c = guild.get_channel(int(channel_id))
@@ -152,7 +152,7 @@ async def poll_voice():
                 break
 
         if channel:
-            print(f"✅ Found voice channel: {channel.name}")
+            print(f"Found voice channel: {channel.name}")
             vc = await channel.connect()
             print(f"Connected to: {channel.name}")
             bot.loop.create_task(voice_listener(vc))
