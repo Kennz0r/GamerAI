@@ -84,7 +84,12 @@ def queue_message():
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
     reply = get_ai_response(f"{user_name} sier: {user_message}")
-    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+    conversation.append({
+        "user_name": user_name,
+        "user_message": user_message,
+        "reply": reply,
+        "rating": None,
+    })
     pending["channel_id"] = channel_id
     pending["reply"] = reply
 
@@ -126,7 +131,12 @@ def queue_audio():
 
 
     reply = get_ai_response(f"{user_name} sier: {user_message}")
-    conversation.append({"user_name": user_name, "user_message": user_message, "reply": reply})
+    conversation.append({
+        "user_name": user_name,
+        "user_message": user_message,
+        "reply": reply,
+        "rating": None,
+    })
     pending["channel_id"] = channel_id
     pending["reply"] = reply
 
@@ -175,6 +185,31 @@ def add_training_example():
         {"role": "assistant", "content": response},
     ])
     return jsonify({"status": "added", "examples": len(training_data)})
+
+
+@app.route("/rate", methods=["POST"])
+def rate_prompt():
+    data = request.get_json(force=True)
+    index = data.get("index")
+    rating = data.get("rating")
+    if not isinstance(index, int) or index < 0 or index >= len(conversation):
+        return jsonify({"error": "invalid index"}), 400
+    conversation[index]["rating"] = rating
+    if rating == "up":
+        entry = conversation[index]
+        with open("training_data.jsonl", "a", encoding="utf-8") as f:
+            f.write(
+                json.dumps({
+                    "prompt": entry.get("user_message", ""),
+                    "response": entry.get("reply", ""),
+                })
+                + "\n"
+            )
+        training_data.append([
+            {"role": "user", "content": entry.get("user_message", "")},
+            {"role": "assistant", "content": entry.get("reply", "")},
+        ])
+    return jsonify({"status": "ok", "rating": rating})
 
 
 @app.route("/conversation_training", methods=["POST"])
