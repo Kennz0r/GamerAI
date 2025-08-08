@@ -166,6 +166,11 @@ function App() {
             value={userText}
             onChange={e => setUserText(e.target.value)}
             placeholder="Message"
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                sendText(e);
+              }
+            }}
           ></textarea><br />
           <button type="submit">Send to AI</button>
         </form>
