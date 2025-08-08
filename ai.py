@@ -3,6 +3,7 @@ import logging
 import re
 from dotenv import load_dotenv
 import ollama
+import sys
 
 from faster_whisper import WhisperModel
 from pydub import AudioSegment, effects
@@ -26,18 +27,31 @@ except Exception as err:
 logger = logging.getLogger("ollama")
 if not logger.handlers:
     logger.setLevel(logging.INFO)
-    handler = logging.FileHandler("ollama.log")
+    # Write UTF-8 to the log file (fixes emoji writes)
+    handler = logging.FileHandler("ollama.log", encoding="utf-8")
     formatter = logging.Formatter("%(asctime)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+
+    # Prevent bubbling to the root logger (which prints to CP1252 console)
+    logger.propagate = False
+
+# (Optional) make this process's stdout/stderr UTF-8 too
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 
 VTUBER_NAME = "Anna Bortion"
 
 system_prompt = f"""
 You are {VTUBER_NAME}, a human(girl).You have emotions like a human but try to hide them.
-Profanity is alowed. Anser short and entertaining.
-Try to not be rude.
+Profanity is alowed occasionally. Answer short and entertaining.
+Don't be rude. You enjoy conversation and like to learn more about our hobbies and interests.
 Only answer in norwegian
 """
 

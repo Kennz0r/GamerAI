@@ -1,13 +1,12 @@
 import os
 import io
 import subprocess
-import sys
+import sys, inspect
 import signal
 import json
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
-from gtts import gTTS
 from ai import get_ai_response, transcribe_audio, set_model, ollama_client
 
 import asyncio, re
@@ -24,6 +23,21 @@ DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
+VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
+TTS_RATE  = os.getenv("TTS_RATE", "0%")   # slightly slower, more natural
+TTS_PITCH = os.getenv("TTS_PITCH", "+0Hz") # neutral pitch
+
+URL_RE = re.compile(r"https?://\S+")
+CODE_FENCE = re.compile(r"```.*?```", re.S)
+EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
+
+# --- ElevenLabs config ---
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "elevenlabs").lower()
+ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY", "").strip()
+ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "").strip()
+ELEVEN_VOICE_NAME = os.getenv("ELEVEN_VOICE_NAME", "").strip()
+ELEVEN_MODEL_ID = os.getenv("ELEVEN_MODEL_ID", "eleven_multilingual_v2")
+
 app = Flask(__name__)
 
 pending = {"channel_id": None, "reply": None}
@@ -39,7 +53,14 @@ pending_tts_web: bytes | None = None
 discord_bot_process: subprocess.Popen | None = None
 # Storage for optional fine-tuning examples
 
-
+try:
+    print("[TTS] Python:", sys.executable)
+    import edge_tts
+    print("[TTS] edge-tts file:", edge_tts.__file__)
+    from inspect import signature
+    print("[TTS] edge-tts Communicate params:", list(signature(edge_tts.Communicate).parameters.keys()))
+except Exception as e:
+    print("[TTS] edge-tts introspection failed:", e)
 
 def load_training_examples() -> list[list[dict[str, str]]]:
     """Load and convert training examples from JSONL."""
@@ -66,13 +87,7 @@ training_data: list[list[dict[str, str]]] = load_training_examples()
 
 
 
-VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
-TTS_RATE  = os.getenv("TTS_RATE", "-6%")   # slightly slower, more natural
-TTS_PITCH = os.getenv("TTS_PITCH", "+0st") # neutral pitch
 
-URL_RE = re.compile(r"https?://\S+")
-CODE_FENCE = re.compile(r"```.*?```", re.S)
-EMOJI_RE = reg.compile(r"\p{Emoji_Presentation}")
 
 def _normalize_text(txt: str) -> str:
     # remove code blocks & links
@@ -97,6 +112,77 @@ def _normalize_text(txt: str) -> str:
         return w.capitalize()
     txt = re.sub(r"\b[A-ZÆØÅ]{3,}\b", _soft, txt)
     return txt.strip()
+
+def _eleven_fetch_voice(voice_id: str) -> dict:
+    r = requests.get(
+        f"https://api.elevenlabs.io/v1/voices/{voice_id}",
+        headers={"xi-api-key": ELEVEN_API_KEY},
+        timeout=15,
+    )
+    if r.status_code != 200:
+        try:
+            err = r.json()
+        except Exception:
+            err = r.text
+        raise RuntimeError(f"ElevenLabs voice lookup failed ({r.status_code}): {err}")
+    return r.json()
+
+def _eleven_resolve_voice_id() -> str:
+    if ELEVEN_VOICE_ID:
+        # Verify access and log the name to avoid surprises
+        meta = _eleven_fetch_voice(ELEVEN_VOICE_ID)
+        print(f"[TTS] Using Eleven voice ID {ELEVEN_VOICE_ID} -> name='{meta.get('name')}'")
+        return ELEVEN_VOICE_ID
+
+    if not ELEVEN_VOICE_NAME:
+        raise RuntimeError("Set ELEVEN_VOICE_ID or ELEVEN_VOICE_NAME in .env")
+
+    # No ID given: lookup by name (fresh; no cache)
+    r = requests.get(
+        "https://api.elevenlabs.io/v1/voices",
+        headers={"xi-api-key": ELEVEN_API_KEY},
+        timeout=15,
+    )
+    r.raise_for_status()
+    voices = r.json().get("voices", [])
+    cand = [v for v in voices if v.get("name","").lower() == ELEVEN_VOICE_NAME.lower()]
+    if not cand:
+        cand = [v for v in voices if ELEVEN_VOICE_NAME.lower() in v.get("name","").lower()]
+    if not cand:
+        raise RuntimeError(f"ElevenLabs voice named '{ELEVEN_VOICE_NAME}' not found")
+    vid = cand[0]["voice_id"]
+    print(f"[TTS] Resolved Eleven voice name '{ELEVEN_VOICE_NAME}' -> id={vid}")
+    return vid
+
+def _tts_elevenlabs(text: str) -> bytes:
+    if not ELEVEN_API_KEY:
+        raise RuntimeError("ELEVEN_API_KEY not set")
+    voice_id = _eleven_resolve_voice_id()
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    payload = {
+        "text": text,
+        "model_id": ELEVEN_MODEL_ID,
+        "voice_settings": {
+            "stability": float(os.getenv("ELEVEN_STABILITY", "0.40")),
+            "similarity_boost": float(os.getenv("ELEVEN_SIMILARITY", "0.85")),
+            "style": float(os.getenv("ELEVEN_STYLE", "0.25")),
+            "use_speaker_boost": os.getenv("ELEVEN_SPEAKER_BOOST", "true").lower() == "true",
+        },
+    }
+    headers = {
+        "xi-api-key": ELEVEN_API_KEY,
+        "accept": "audio/mpeg",
+        "content-type": "application/json",
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    # If it failed (e.g., you don’t have rights to that voice), they return JSON error
+    if r.headers.get("content-type","").startswith("application/json") or r.status_code >= 400:
+        try:
+            err = r.json()
+        except Exception:
+            err = {"error": r.text}
+        raise RuntimeError(f"ElevenLabs error: {err}")
+    return r.content
 
 def _split_sentences(txt: str):
     # conservative sentence split; break very long sentences on commas
@@ -136,27 +222,51 @@ def _to_ssml(sentences, rate=TTS_RATE, pitch=TTS_PITCH):
 </speak>
 """.strip()
 
+    
 async def _synth_ssml(ssml: str, voice: str) -> bytes:
-    """
-    Works with both new and old edge-tts:
-    - New: Communicate(text=..., voice=..., ssml=True)
-    - Old: No ssml kwarg -> we strip tags to plain text
-    """
-    buf = io.BytesIO()
-    try:
-        # Newer edge-tts supports ssml flag
-        communicate = edge_tts.Communicate(text=ssml, voice=voice, ssml=True)
-    except TypeError:
-        # Old version: strip tags; no SSML support
-        plain = re.sub(r"<[^>]+>", " ", ssml)
-        plain = re.sub(r"\s+", " ", plain).strip()
-        print("[TTS] Using legacy edge-tts without SSML (update recommended).")
-        communicate = edge_tts.Communicate(text=plain, voice=voice)
+    # Collapse SSML -> plain text (your edge-tts build has no ssml=True)
+    plain = re.sub(r"<[^>]+>", " ", ssml)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    # Edge sometimes returns no audio for certain combos. Try progressively.
+    def comm(v, rate=None, pitch=None):
+        kwargs = dict(text=plain, voice=v)
+        if rate and rate != "0%":
+            kwargs["rate"] = rate
+        if pitch and pitch not in ("0Hz","+0Hz","-0Hz"):
+            kwargs["pitch"] = pitch
+        return edge_tts.Communicate(**kwargs)
 
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            buf.write(chunk["data"])
-    return buf.getvalue()
+    alt_nb = "nb-NO-FinnNeural" if "Iselin" in voice else "nb-NO-IselinNeural"
+    attempts = [
+        (voice, None, None),
+        (voice, "-6%", None),
+        (voice, "-6%", "+0Hz"),
+        (alt_nb, None, None),
+        (alt_nb, "-6%", "+0Hz"),
+        ("en-US-AnaNeural", None, None),      # diagnostic fallback
+        ("en-US-AnaNeural", "-6%", "+0Hz"),
+    ]
+
+    last_err = None
+    for v, r, p in attempts:
+        try:
+            print(f"[TTS] Trying v='{v}' rate='{r}' pitch='{p}'")
+            buf, got = io.BytesIO(), False
+            async for ch in comm(v, r, p).stream():
+                if ch["type"] == "audio":
+                    buf.write(ch["data"]); got = True
+            if got and buf.tell() > 0:
+                print(f"[TTS] Success v='{v}' rate='{r}' pitch='{p}' bytes={buf.tell()}")
+                return buf.getvalue()
+            else:
+                print(f"[TTS] No audio v='{v}' rate='{r}' pitch='{p}'")
+        except Exception as e:
+            last_err = e
+            print(f"[TTS] Attempt failed v='{v}' rate='{r}' pitch='{p}': {e}")
+    print(f"[TTS] No audio after attempts. Last error: {last_err}")
+    return b""
+
+
 
 def _polish_audio(mp3_bytes: bytes) -> bytes:
     # normalize, trim a bit of head/tail silence so clips match loudness
@@ -167,27 +277,32 @@ def _polish_audio(mp3_bytes: bytes) -> bytes:
     normalized.export(out, format="mp3", bitrate="128k")
     return out.getvalue()
 
-# --- REPLACE your existing create_tts_audio with this ---
 def create_tts_audio(text: str) -> bytes:
-    clean = _normalize_text(text)
-    sentences = _split_sentences(clean) or [clean or ""]
-    ssml = _to_ssml(sentences)
     try:
-        mp3_raw = asyncio.run(_synth_ssml(ssml, VOICE_NAME))
+        clean = _normalize_text(text)[:1200]
+        # ElevenLabs handles long strings fine; chunking still helps cadence
+        sentences = _split_sentences(clean) or [clean or ""]
+        plain = " ".join(sentences)
+
+        if TTS_PROVIDER == "elevenlabs":
+            mp3_raw = _tts_elevenlabs(plain)
+        else:
+            # fallback to your existing Edge path if you keep it
+            ssml = _to_ssml(sentences)
+            mp3_raw = asyncio.run(_synth_ssml(ssml, VOICE_NAME))
+
+        if not mp3_raw:
+            return b""
         try:
-            # Try polish; if ffmpeg/pydub missing, return raw Edge audio
             return _polish_audio(mp3_raw)
         except Exception as e:
-            print("[TTS] Pydub/ffmpeg failed; returning raw Edge-TTS audio:", e)
+            print("[TTS] Post-process failed; returning raw audio:", e)
             return mp3_raw
     except Exception as e:
-        print("[TTS] Edge-TTS failed, falling back to gTTS:", e)
-        try:
-            tts = gTTS(text=clean or text, lang="no")
-            b = io.BytesIO(); tts.write_to_fp(b); return b.getvalue()
-        except Exception as e2:
-            print("[TTS] gTTS also failed:", e2)
-            return b""
+        print("[TTS] TTS error:", e)
+        return b""
+
+
 
 
 def send_to_discord(channel_id: str, text: str) -> None:
