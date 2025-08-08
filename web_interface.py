@@ -73,6 +73,8 @@ voice_command = {"action": None, "channel_id": None}
 conversation = []
 # Track whether speech recognition is enabled
 speech_recognition_enabled = True
+# Track whether sending to Discord is enabled
+discord_send_enabled = True
 # Pending TTS audio bytes for Discord bot and web preview
 pending_tts_discord: bytes | None = None
 # Pending preview audio is generated on-demand but keep storage for compatibility
@@ -528,7 +530,16 @@ def queue_message():
     channel_id = data.get("channel_id")
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
-    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
+    if isinstance(reply_raw, tuple):
+        reply, action = reply_raw
+    else:
+        reply, action = reply_raw, None
+    if action == "leave":
+       voice_command["action"] = "leave"
+       voice_command["channel_id"] = data.get("channel_id")
+       print(f"[Voice Command] Leave triggered by {user_name} (text)")
+       return {"status": "voice_command", "command": "leave"}
     conversation.append({
         "user_name": user_name,
         "user_message": user_message,
@@ -575,7 +586,18 @@ def queue_audio():
         return {"status": "ignored"}
 
 
-    reply = get_ai_response(f"{user_name} sier: {user_message}")
+    reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
+    if isinstance(reply_raw, tuple):
+        reply, action = reply_raw
+    else:
+        reply, action = reply_raw, None
+
+    # Voice action handling (from voice → STT → LLM)
+    if action == "leave":
+        voice_command["action"] = "leave"
+        voice_command["channel_id"] = channel_id  # bot will disconnect from any VC it’s in
+        print(f"[Voice Command] Leave triggered by {user_name} (voice)")
+        return {"status": "voice_command", "command": "leave"}
     conversation.append({
         "user_name": user_name,
         "user_message": user_message,
@@ -784,6 +806,14 @@ def speech_recognition_route():
     speech_recognition_enabled = bool(data.get("enabled", True))
     return jsonify({"enabled": speech_recognition_enabled})
 
+@app.route("/discord_send", methods=["GET", "POST"])
+def discord_send_route():
+    global discord_send_enabled
+    if request.method == "GET":
+        return jsonify({"enabled": discord_send_enabled})
+    data = request.get_json(force=True)
+    discord_send_enabled = bool(data.get("enabled", True))
+    return jsonify({"enabled": discord_send_enabled})
 
 @app.route("/approve", methods=["POST"])
 def approve():
@@ -800,7 +830,7 @@ def approve():
     pending_tts_discord = audio
     pending_tts_web = audio
 
-    if channel_id and DISCORD_TOKEN:
+    if channel_id and DISCORD_TOKEN and discord_send_enabled:
         send_to_discord(channel_id, pending_reply)
 
     pending["channel_id"] = None

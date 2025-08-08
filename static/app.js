@@ -6,6 +6,7 @@ function App() {
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
+  const [discordEnabled, setDiscordEnabled] = React.useState(true);
   const [ttsEnabled, setTtsEnabled] = React.useState(true);
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
@@ -33,6 +34,9 @@ function App() {
       fetch('/speech_recognition')
         .then(res => res.json())
         .then(data => setSpeechEnabled(data.enabled));
+      fetch('/discord_send')
+        .then(res => res.json())
+        .then(data => setDiscordEnabled(data.enabled));
       fetch('/log')
         .then(res => res.json())
         .then(data => setLog(data.log));
@@ -109,6 +113,15 @@ function App() {
     setSpeechEnabled(enabled);
   };
 
+  const updateDiscordEnabled = async enabled => {
+    await fetch('/discord_send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    setDiscordEnabled(enabled);
+  };
+
   const updatePiperSetting = (field, value) => {
     setPiperSettings(ps => ({ ...ps, [field]: value }));
   };
@@ -139,6 +152,7 @@ function App() {
 
   const sendPendingToDiscord = async e => {
     e.preventDefault();
+    if (!discordEnabled) return;
     await fetch('/approve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -229,12 +243,15 @@ function App() {
               value={pending}
               onChange={e => setPending(e.target.value)}
             ></textarea><br />
-            <button type="submit">Send to Discord</button>
+            <button type="submit" disabled={!discordEnabled}>Send to Discord</button>
             <button type="button" onClick={clearPending}>Clear</button>
           </form>
         ) : (
           <p>No pending message.</p>
         )}
+        <button onClick={() => updateDiscordEnabled(!discordEnabled)}>
+          Send to Discord: {discordEnabled ? 'On' : 'Off'}
+        </button>
         <button onClick={() => setTtsEnabled(!ttsEnabled)}>
           TTS: {ttsEnabled ? 'On' : 'Off'}
         </button>

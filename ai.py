@@ -4,7 +4,7 @@ import re
 from dotenv import load_dotenv
 import ollama
 import sys
-
+import json
 from faster_whisper import WhisperModel
 from pydub import AudioSegment, effects
 import subprocess, shutil, io, os
@@ -46,7 +46,7 @@ except Exception:
     pass
 
 
-VTUBER_NAME = "Anna Bortion"
+VTUBER_NAME = "Arne Borheim"
 
 system_prompt = f"""
 You are {VTUBER_NAME}, a human girl
@@ -55,6 +55,20 @@ Dont ask if we need help or if there is anything in particular we want to talk a
 Profanity is allowed if you feel like it.
 If you don't understand a question dont bother asking what we meant. Just wait for next.
 Answer in Norwegian only.
+
+# ACTION PROTOKOLL
+Når brukeren egentlig gir en stemmekommando, skal du skrive EN ENESTE linje nøyaktig slik:
+##ACTION {{"type":"leave"}}
+
+Støttede actions: "leave", "join".
+Ellers skal du svare normalt (på norsk).
+
+Eksempler:
+Bruker: kan du gå ut av voice?
+Assistent: ##ACTION {{"type":"leave"}}
+
+Bruker: kom inn i kanalen min
+Assistent: ##ACTION {{"type":"join"}}
 """
 
 
@@ -73,7 +87,7 @@ def set_model(name: str) -> None:
 
 
 
-def get_ai_response(user_msg: str) -> str:
+def get_ai_response(user_msg: str):
     model = current_model
     logger.info("Using model: %s", model)
     logger.info("User message: %s", user_msg)
@@ -87,21 +101,37 @@ def get_ai_response(user_msg: str) -> str:
             ],
         )
         reply_raw = response["message"]["content"]
+
         # Extract and log any <think>...</think> sections
         thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
         for thought in thoughts:
             logger.info("Anna Bortion [think]: %s", thought.strip())
 
-        # Remove <think> sections from the final reply
-        reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL).strip()
+        # Detect ACTION line
+        action = None
+        m = ACTION_RE.search(reply_raw)
+        if m:
+            try:
+                payload = json.loads(m.group(1))
+                action = (payload.get("type") or "").strip().lower() or None
+            except Exception:
+                action = None
+
+        # Clean final reply: drop <think> and ##ACTION line
+        reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL)
+        reply = re.sub(ACTION_RE, "", reply).strip()
+
         for phrase in BANNED_PHRASES:
             reply = reply.replace(phrase, "")
         reply = re.sub(r"\s{2,}", " ", reply).strip()
-        logger.info("Anna Bortion: %s", reply)
-        return reply
+
+        logger.info("Anna Bortion (action=%s): %s", action, reply)
+        return reply, action
+
     except Exception as e:
         logger.error("Ollama error: %s", e)
-        return f"[Feil ved tilkobling til Ollama: {e}]"
+        return f"[Feil ved tilkobling til Ollama: {e}]", None
+
 
 def _prepare_wav_16k_mono(src_path: str) -> str:
     out_path = os.path.splitext(src_path)[0] + "_16k.wav"
@@ -128,6 +158,7 @@ HOTFIX = {
 }
 
 BANNED_PHRASES = ["Teksting av Nicolai Winther"]
+ACTION_RE = re.compile(r"^##ACTION\s+(\{.*\})\s*$", re.M)
 
 def _post_fix_nb(text: str) -> str:
     out = text
