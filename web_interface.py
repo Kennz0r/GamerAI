@@ -527,7 +527,8 @@ def send_to_discord(channel_id: str, text: str) -> None:
 @app.route("/queue", methods=["POST"])
 def queue_message():
     data = request.get_json(force=True)
-    channel_id = data.get("channel_id")
+    default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
+    channel_id = data.get("channel_id") or default_channel
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
     reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
@@ -546,13 +547,21 @@ def queue_message():
         "reply": reply,
         "rating": None,
     })
+
+    global pending_tts_web, pending_tts_discord
+    audio = create_tts_audio(reply)
+    pending_tts_web = audio
+
+    if discord_send_enabled:
+        pending_tts_discord = audio
+        if channel_id and DISCORD_TOKEN:
+            send_to_discord(channel_id, reply)
+        pending["channel_id"] = None
+        pending["reply"] = None
+        return {"status": "sent"}
+
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-
-    # Generate TTS preview automatically so the user can hear the reply
-    global pending_tts_web, pending_tts_discord
-    pending_tts_web = create_tts_audio(reply)
-    # Clear any pending Discord audio until the message is approved
     pending_tts_discord = None
 
     return {"status": "queued"}
@@ -560,7 +569,8 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
-    channel_id = request.form.get("channel_id") or None
+    default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
+    channel_id = request.form.get("channel_id") or default_channel
     user_name = request.form.get("user_name", "Voice")
     audio_file = request.files.get("file")
     if not audio_file:
@@ -581,10 +591,8 @@ def queue_audio():
     finally:
         os.remove(path)
 
-    
     if not user_message.strip():
         return {"status": "ignored"}
-
 
     reply_raw = get_ai_response(f"{user_name} sier: {user_message}")
     if isinstance(reply_raw, tuple):
@@ -604,12 +612,21 @@ def queue_audio():
         "reply": reply,
         "rating": None,
     })
+
+    global pending_tts_web, pending_tts_discord
+    audio = create_tts_audio(reply)
+    pending_tts_web = audio
+
+    if discord_send_enabled:
+        pending_tts_discord = audio
+        if channel_id and DISCORD_TOKEN:
+            send_to_discord(channel_id, reply)
+        pending["channel_id"] = None
+        pending["reply"] = None
+        return {"status": "sent"}
+
     pending["channel_id"] = channel_id
     pending["reply"] = reply
-
-    # Prepare TTS preview for voice input replies as well
-    global pending_tts_web, pending_tts_discord
-    pending_tts_web = create_tts_audio(reply)
     pending_tts_discord = None
 
     return {"status": "queued"}
