@@ -73,6 +73,8 @@ voice_command = {"action": None, "channel_id": None}
 conversation = []
 # Track whether speech recognition is enabled
 speech_recognition_enabled = True
+# Track whether sending to Discord is enabled
+discord_send_enabled = True
 # Pending TTS audio bytes for Discord bot and web preview
 pending_tts_discord: bytes | None = None
 # Pending preview audio is generated on-demand but keep storage for compatibility
@@ -785,6 +787,16 @@ def speech_recognition_route():
     return jsonify({"enabled": speech_recognition_enabled})
 
 
+@app.route("/discord_send", methods=["GET", "POST"])
+def discord_send_route():
+    global discord_send_enabled
+    if request.method == "GET":
+        return jsonify({"enabled": discord_send_enabled})
+    data = request.get_json(force=True)
+    discord_send_enabled = bool(data.get("enabled", True))
+    return jsonify({"enabled": discord_send_enabled})
+
+
 @app.route("/approve", methods=["POST"])
 def approve():
     text = request.form.get("reply", "")
@@ -800,7 +812,7 @@ def approve():
     pending_tts_discord = audio
     pending_tts_web = audio
 
-    if channel_id and DISCORD_TOKEN:
+    if channel_id and DISCORD_TOKEN and discord_send_enabled:
         send_to_discord(channel_id, pending_reply)
 
     pending["channel_id"] = None
