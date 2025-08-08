@@ -815,15 +815,6 @@ def discord_send_route():
     discord_send_enabled = bool(data.get("enabled", True))
     return jsonify({"enabled": discord_send_enabled})
 
-@app.route("/discord_send", methods=["GET", "POST"])
-def discord_send_route():
-    global discord_send_enabled
-    if request.method == "GET":
-        return jsonify({"enabled": discord_send_enabled})
-    data = request.get_json(force=True)
-    discord_send_enabled = bool(data.get("enabled", True))
-    return jsonify({"enabled": discord_send_enabled})
-
 
 @app.route("/approve", methods=["POST"])
 def approve():
