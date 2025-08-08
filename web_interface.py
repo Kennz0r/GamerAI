@@ -39,6 +39,8 @@ if hasattr(torch, "load"):
     torch.load = _load
     print("[TTS] Patched torch.load to weights_only=False")
 
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0))
 
 DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -91,6 +93,25 @@ pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
 # Storage for optional fine-tuning examples
+
+HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
+
+def build_history_for_guild(guild_id: str | None, limit: int = HISTORY_TURNS) -> str:
+    """Return compact recent turns for this guild only."""
+    if not guild_id:
+        return ""
+    lines = []
+    # only this guild, last N entries
+    for c in [x for x in conversation if x.get("guild_id") == guild_id][-limit:]:
+        u = c.get("user_name") or "Bruker"
+        um = (c.get("user_message") or "").strip()
+        ar = (c.get("reply") or "").strip()
+        if um:
+            lines.append(f"{u}: {um}")
+        if ar:
+            lines.append(f"AI: {ar}")
+    return "\n".join(lines).strip()
+
 
 def load_training_examples() -> list[list[dict[str, str]]]:
     """Load and convert training examples from JSONL."""
@@ -543,11 +564,19 @@ def queue_message():
     user_id = (data.get("user_id") or "").strip() or None 
     guild_id = (data.get("guild_id") or "").strip() or None
 
+    history_text = build_history_for_guild(guild_id)
+    prompt = (
+        "Dette er en pågående samtale i en Discord-server.\n"
+        + (f"Tidligere meldinger (kort):\n{history_text}\n\n" if history_text else "")
+        + f"Nå sier {user_name}: {user_message}\n"
+        "Svar naturlig på norsk og hold tråden i samtalen."
+    )
+
     reply_raw = get_ai_response(
-    f"{user_name} sier: {user_message}",
+    prompt,
     user_id=user_id,
     user_name=user_name,
-    guild_id=guild_id
+    guild_id=guild_id,
 )
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
@@ -560,7 +589,9 @@ def queue_message():
        return {"status": "voice_command", "command": "leave"}
 
     conversation.append({
-        "user_id": user_id,                      # <-- keep track
+        "guild_id": guild_id,
+        "channel_id": channel_id,
+        "user_id": user_id,
         "user_name": user_name,
         "user_message": user_message,
         "reply": reply,
@@ -615,11 +646,19 @@ def queue_audio():
         if not user_message.strip():
             return {"status": "ignored"}
 
+    history_text = build_history_for_guild(guild_id)
+    prompt = (
+    "Dette er en pågående samtale i en Discord-server.\n"
+    + (f"Tidligere meldinger (kort):\n{history_text}\n\n" if history_text else "")
+    + f"Nå sier {user_name}: {user_message}\n"
+    "Svar naturlig på norsk og hold tråden i samtalen."
+)
+
     reply_raw = get_ai_response(
-    f"{user_name} sier: {user_message}",
+    prompt,
     user_id=user_id,
     user_name=user_name,
-    guild_id=guild_id,   
+    guild_id=guild_id,
 )
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
@@ -633,7 +672,9 @@ def queue_audio():
         print(f"[Voice Command] Leave triggered by {user_name} (voice)")
         return {"status": "voice_command", "command": "leave"}
     conversation.append({
-        "user_id": user_id,                      # <-- keep track
+        "guild_id": guild_id,
+        "channel_id": channel_id,
+        "user_id": user_id,
         "user_name": user_name,
         "user_message": user_message,
         "reply": reply,
