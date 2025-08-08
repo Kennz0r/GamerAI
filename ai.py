@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import ollama
 
 from faster_whisper import WhisperModel
+from pydub import AudioSegment, effects
+import subprocess, shutil, io, os
 
 load_dotenv()
 
@@ -82,29 +84,81 @@ def get_ai_response(user_msg: str) -> str:
         logger.error("Ollama error: %s", e)
         return f"[Feil ved tilkobling til Ollama: {e}]"
 
+def _prepare_wav_16k_mono(src_path: str) -> str:
+    out_path = os.path.splitext(src_path)[0] + "_16k.wav"
+    if shutil.which("ffmpeg"):
+        # Fast + good quality resample + loudnorm
+        subprocess.run([
+            "ffmpeg", "-y", "-i", src_path,
+            "-ac", "1", "-ar", "16000",
+            "-af", "highpass=f=80,lowpass=f=8000,volume=+2dB",
+            out_path
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return out_path
+    # Fallback with pydub
+    audio = AudioSegment.from_file(src_path)
+    audio = audio.set_channels(1).set_frame_rate(16000)
+    audio = effects.normalize(audio)
+    buf = io.BytesIO(); audio.export(buf, format="wav")
+    with open(out_path, "wb") as f: f.write(buf.getvalue())
+    return out_path
 
+
+HOTFIX = {
+
+}
+
+def _post_fix_nb(text: str) -> str:
+    out = text
+    for wrong, right in HOTFIX.items():
+        out = re.sub(rf"\b{re.escape(wrong)}\b", right, out, flags=re.I)
+    # common punctuation capitalization for Norwegian:
+    out = re.sub(r"\s+([,.!?])", r"\1", out)
+    out = re.sub(r"(^|[.!?]\s+)([a-zæøå])", lambda m: m.group(1)+m.group(2).upper(), out)
+    return out
 
 def transcribe_audio(path: str) -> str:
-    supported_formats = {"flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"}
-    ext = os.path.splitext(path)[1][1:].lower()
-    if ext not in supported_formats:
-        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {sorted(supported_formats)}")
+    # 1) Prepare audio
+    try:
+        wav_path = _prepare_wav_16k_mono(path)
+    except Exception as e:
+        wav_path = path  # fail open
 
+    # 2) Read env/config
+    lang = os.getenv("WHISPER_LANGUAGE", "no")
+    beam = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
+    temp = float(os.getenv("WHISPER_TEMPERATURE", "0.0"))
+    init = os.getenv("WHISPER_INITIAL_PROMPT", None)
+
+    # 3) Decode with tuned VAD
     try:
         segments, _ = whisper_model.transcribe(
-            path,
-            language=WHISPER_LANGUAGE,
-            multilingual=True,
+            wav_path,
+            language=lang,
             vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 200,
+                "threshold": 0.5,
+            },
+            beam_size=beam,
+            temperature=temp,
+            initial_prompt=init,
         )
-    except Exception:
-        try:
-            segments, _ = whisper_model.transcribe(
-                path,
-                language=WHISPER_LANGUAGE,
-                multilingual=True,
-            )
-        except Exception as err:  # pragma: no cover - whisper errors
-            raise ValueError(f"Transcription failed: {err}") from err
-    text = "".join(segment.text for segment in segments).strip()
-    return text
+    except TypeError:
+        # older faster-whisper (no vad_parameters); still try
+        segments, _ = whisper_model.transcribe(
+            wav_path,
+            language=lang,
+            vad_filter=True,
+            beam_size=beam,
+            temperature=temp,
+            initial_prompt=init,
+        )
+    except Exception as err:
+        # ultimate fallback
+        segments, _ = whisper_model.transcribe(wav_path, language=lang)
+
+    text = "".join(s.text for s in segments).strip()
+    return _post_fix_nb(text)
+
