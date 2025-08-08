@@ -29,11 +29,22 @@ _store_lock = threading.Lock()
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 # Allow overriding the expected transcription language; default to Norwegian.
 WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "no")
+# Allow callers to tune compute precision to trade accuracy for speed.
+WHISPER_COMPUTE_GPU = os.getenv("WHISPER_COMPUTE_TYPE_GPU", "float16")
+WHISPER_COMPUTE_CPU = os.getenv("WHISPER_COMPUTE_TYPE_CPU", "int8")
 try:
-    whisper_model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
+    whisper_model = WhisperModel(
+        WHISPER_MODEL,
+        device="cuda",
+        compute_type=WHISPER_COMPUTE_GPU,
+    )
 except Exception as err:
     print(f"Whisper GPU init failed: {err}. Falling back to CPU.")
-    whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+    whisper_model = WhisperModel(
+        WHISPER_MODEL,
+        device="cpu",
+        compute_type=WHISPER_COMPUTE_CPU,
+    )
 
 def _load_guilds():
     try:
@@ -364,7 +375,8 @@ def transcribe_audio(path: str) -> str:
 
     # 2) Read env/config
     lang = os.getenv("WHISPER_LANGUAGE", "no")
-    beam = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
+    # Use a lean default beam size for faster decoding; callers can override via env.
+    beam = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
     temp = float(os.getenv("WHISPER_TEMPERATURE", "0.0"))
     init = os.getenv("WHISPER_INITIAL_PROMPT", None)
 
@@ -380,6 +392,7 @@ def transcribe_audio(path: str) -> str:
                 "threshold": 0.5,
             },
             beam_size=beam,
+            best_of=1,
             temperature=temp,
             initial_prompt=init,
         )
@@ -390,12 +403,18 @@ def transcribe_audio(path: str) -> str:
             language=lang,
             vad_filter=True,
             beam_size=beam,
+            best_of=1,
             temperature=temp,
             initial_prompt=init,
         )
     except Exception as err:
         # ultimate fallback
-        segments, _ = whisper_model.transcribe(wav_path, language=lang)
+        segments, _ = whisper_model.transcribe(
+            wav_path,
+            language=lang,
+            beam_size=beam,
+            best_of=1,
+        )
 
     text = "".join(s.text for s in segments).strip()
     return _post_fix_nb(text)
