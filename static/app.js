@@ -132,6 +132,17 @@ function App() {
     setPending('');
   };
 
+  const rate = async (index, rating) => {
+    await fetch('/rate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, rating }),
+    });
+    const res = await fetch('/conversation');
+    const data = await res.json();
+    setConversation(data);
+  };
+
   const sendConversationToTraining = async () => {
     const res = await fetch('/conversation_training', { method: 'POST' });
     const data = await res.json();
@@ -148,6 +159,11 @@ function App() {
               <b>{c.user_name}:</b> {c.user_message}
               <br />
               <b>Anna Bortion:</b> {c.reply}
+              <br />
+              <span className="rating-buttons">
+                <button onClick={() => rate(i, 'up')} disabled={c.rating === 'up'}>👍</button>
+                <button onClick={() => rate(i, 'down')} disabled={c.rating === 'down'}>👎</button>
+              </span>
             </p>
           ))}
           <div ref={conversationEndRef}></div>

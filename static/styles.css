@@ -79,3 +79,7 @@ form {
   display: inline-block;
   margin-bottom: 10px;
 }
+
+.rating-buttons button {
+  margin-right: 5px;
+}
