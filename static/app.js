@@ -52,6 +52,18 @@ function App() {
   const watcherTimerRef = React.useRef(null);
   const watcherStreamRef = React.useRef(null);
 
+  // Passive screen grab + auto-attach
+const [attachLatestFrame, setAttachLatestFrame] = React.useState(true);
+const [screenSourceActive, setScreenSourceActive] = React.useState(false);
+const [screenStatus, setScreenStatus] = React.useState('No screen selected');
+
+const latestFrameRef = React.useRef(null);
+const grabberVideoRef = React.useRef(null);
+const grabberCanvasRef = React.useRef(null);
+const grabberTimerRef = React.useRef(null);
+const grabberStreamRef = React.useRef(null);
+
+
 
   const statusClass = enabled => `status-button ${enabled ? 'on' : 'off'}`;
 
@@ -120,9 +132,11 @@ function App() {
       if (textChannelId) formData.append('channel_id', textChannelId);
       formData.append('user_name', userName);
       if (screenshot) {
-        const img = getCroppedImage();
-        if (img) formData.append('image', img);
-      }
+  const img = getCroppedImage();
+  if (img) formData.append('image', img);
+} else if (attachLatestFrame && latestFrameRef.current) {
+  formData.append('image', latestFrameRef.current);
+}
       await fetch('/queue_audio', { method: 'POST', body: formData });
     };
     mediaRecorderRef.current.start();
@@ -213,9 +227,11 @@ function App() {
     };
     if (textChannelId) payload.channel_id = textChannelId;
     if (screenshot) {
-      const img = getCroppedImage();
-      if (img) payload.image = img;
-    }
+  const img = getCroppedImage();
+  if (img) payload.image = img;
+} else if (attachLatestFrame && latestFrameRef.current) {
+  payload.image = latestFrameRef.current;
+}
     await fetch('/queue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -473,6 +489,69 @@ function App() {
     }
   }
 
+  async function selectScreenSource() {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 5 }, audio: false
+    });
+    grabberStreamRef.current = stream;
+    stream.getVideoTracks()[0].addEventListener('ended', stopScreenSource);
+
+    if (!grabberVideoRef.current) {
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true;
+      grabberVideoRef.current = v;
+    }
+    grabberVideoRef.current.srcObject = stream;
+    await grabberVideoRef.current.play();
+
+    if (!grabberCanvasRef.current) {
+      grabberCanvasRef.current = document.createElement('canvas');
+    }
+
+    setScreenSourceActive(true);
+    setScreenStatus('Capturing…');
+
+    // keep a fresh frame in memory (no POSTs)
+    grabberTimerRef.current = setInterval(captureLatestFrame, 500);
+  } catch (e) {
+    console.error('selectScreenSource failed:', e);
+    setScreenStatus('Permission denied or failed');
+  }
+}
+
+function captureLatestFrame() {
+  const v = grabberVideoRef.current;
+  if (!v || v.readyState < 2) return;
+
+  const maxW = 960; // smaller == lighter payload when used
+  const scale = Math.min(1, maxW / (v.videoWidth || maxW));
+  const w = Math.max(1, Math.floor((v.videoWidth || maxW) * scale));
+  const h = Math.max(1, Math.floor((v.videoHeight || Math.round(maxW * 9/16)) * scale));
+
+  const c = grabberCanvasRef.current;
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(v, 0, 0, w, h);
+
+  // store as data URL (your backend already accepts these)
+  latestFrameRef.current = c.toDataURL('image/jpeg', 0.6);
+}
+
+function stopScreenSource() {
+  if (grabberTimerRef.current) { clearInterval(grabberTimerRef.current); grabberTimerRef.current = null; }
+  if (grabberVideoRef.current) grabberVideoRef.current.srcObject = null;
+  if (grabberStreamRef.current) {
+    grabberStreamRef.current.getTracks().forEach(t => t.stop());
+    grabberStreamRef.current = null;
+  }
+  setScreenSourceActive(false);
+  setScreenStatus('Stopped');
+}
+
+// stop grabber if the component unmounts
+React.useEffect(() => () => stopScreenSource(), []);
+
+
 
   // cleanup on unmount
   React.useEffect(() => {
@@ -548,6 +627,7 @@ function App() {
               placeholder="What should the AI do each time it sees a new frame?"
             />
           </label>
+          <button type="button" onClick={captureScreen}>Capture Screen</button>
           <div className="send-controls" style={{ gap: 8 }}>
             <button
               type="button"
@@ -560,6 +640,30 @@ function App() {
               {watcherStatus}
             </span>
           </div>
+          <h3>Live Screen Attachment</h3>
+<div className="send-controls" style={{ gap: 8 }}>
+  <button
+    type="button"
+    className={statusClass(screenSourceActive)}
+    onClick={screenSourceActive ? stopScreenSource : selectScreenSource}
+  >
+    {screenSourceActive ? 'Stop Screen Source' : 'Select Screen Source'}
+  </button>
+
+  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <input
+      type="checkbox"
+      checked={attachLatestFrame}
+      onChange={e => setAttachLatestFrame(e.target.checked)}
+    />
+    Attach latest frame to voice/text
+  </label>
+
+  <span style={{ alignSelf: 'center', fontSize: 13, opacity: 0.8 }}>
+    {screenStatus}
+  </span>
+</div>
+
 
                     <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
             <label style={{ fontSize: 13 }}>
