@@ -556,61 +556,75 @@ def _post_fix_nb(text: str) -> str:
     return out
 
 def transcribe_audio(path: str) -> str:
-    # 1) Prepare audio
+    """
+    Transcribe a WAV file using faster-whisper with context tuning and denoise.
+    """
+
+    initial_prompt = os.getenv("WHISPER_INITIAL_PROMPT", "").strip()
+    language = WHISPER_LANGUAGE or "no"
+
+    # Optional: denoise + EQ before feeding into Whisper
     try:
-        wav_path = _prepare_wav_16k_mono(path)
+        clean_path = os.path.splitext(path)[0] + "_clean.wav"
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", path,
+                "-ac", "1", "-ar", "16000",
+                "-af", "highpass=f=80,lowpass=f=8000,afftdn=nf=-25",
+                clean_path
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
+        )
+        use_path = clean_path
     except Exception as e:
-        wav_path = path  # fail open
+        print(f"[STT] ffmpeg prefilter failed, using raw audio: {e}")
+        use_path = path
 
-    # 2) Read env/config
-    lang = os.getenv("WHISPER_LANGUAGE", "no")
-    # Use a lean default beam size for faster decoding; callers can override via env.
-    beam = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
-    temp = float(os.getenv("WHISPER_TEMPERATURE", "0.0"))
-    init = os.getenv("WHISPER_INITIAL_PROMPT", None)
+    common_args = dict(
+        language=language,
+        vad_filter=True,  # enable VAD filtering to drop silence
+        condition_on_previous_text=False,
+        initial_prompt=initial_prompt or None,
+        beam_size=5,
+        best_of=5,
+        without_timestamps=True
+    )
 
-    # 3) Decode with tuned VAD
-    try:
-        segments, _ = whisper_model.transcribe(
-            wav_path,
-            language=lang,
-            vad_filter=True,
-            vad_parameters={
-                "min_silence_duration_ms": 150,
-                "speech_pad_ms": 400,
-                "threshold": 0.4,
-            },
-            beam_size=beam,
-            best_of=3,
-            temperature=temp,
-            initial_prompt=os.getenv(
-                "WHISPER_INITIAL_PROMPT",
-                "Norsk samtale. Ignorer bakgrunns-TV, 'Undertekster av ...' rulletekster og 'Teksting av ...'."
-            ),
-        )
-    except TypeError:
-        # older faster-whisper (no vad_parameters); still try
-        segments, _ = whisper_model.transcribe(
-            wav_path,
-            language=lang,
-            vad_filter=True,
-            beam_size=beam,
-            best_of=1,
-            temperature=temp,
-            initial_prompt=init,
-        )
-    except Exception as err:
-        # ultimate fallback
-        segments, _ = whisper_model.transcribe(
-            wav_path,
-            language=lang,
-            beam_size=beam,
-            best_of=1,
-        )
+    result_text = ""
+    temps = [0.0, 0.2, 0.4]
+    for t in temps:
+        try:
+            segments, _info = whisper_model.transcribe(
+                use_path, temperature=t, **common_args
+            )
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+            if text:
+                result_text = text
+                break
+        except Exception as e:
+            print(f"[STT] Whisper error at temperature={t}: {e}")
 
-    text = "".join(s.text for s in segments).strip()
-    text = _strip_noise_phrases(text)
-    if not text:
-        return ""  # treat as silence so your route returns {"status":"ignored"}
-    return _post_fix_nb(text)
+    # Cleanup temp file
+    if use_path != path:
+        try:
+            os.remove(use_path)
+        except:
+            pass
+
+    # Remove noise phrases (you already have _strip_noise_phrases)
+    result_text = _strip_noise_phrases(result_text)
+
+    # Apply post-correction map
+    MISHEAR_MAP = {
+        "Tekstring": "Teksting",
+        "Truen ass": "TrueNAS",
+        "prox mox": "Proxmox",
+        "op sense": "OPNsense",
+    }
+    for bad, good in MISHEAR_MAP.items():
+        result_text = re.sub(rf"\b{re.escape(bad)}\b", good, result_text, flags=re.I)
+
+    print(f"[STT] Final transcript: {result_text}")
+    return result_text
+
 
