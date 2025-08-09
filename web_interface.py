@@ -572,8 +572,12 @@ def queue_message():
     channel_id = data.get("channel_id") or default_channel
     user_message = data.get("user_message", "")
     user_name = data.get("user_name", "Unknown")
-    user_id = (data.get("user_id") or "").strip() or None 
+    user_id = (data.get("user_id") or "").strip() or None
     guild_id = (data.get("guild_id") or "").strip() or None
+    image_data = data.get("image")
+    image_b64 = None
+    if image_data:
+        image_b64 = image_data.split(",", 1)[1] if "," in image_data else image_data
 
     history_text = build_history_for_guild(guild_id)
     prompt = (
@@ -585,11 +589,12 @@ def queue_message():
 
     start = time.time()
     reply_raw = get_ai_response(
-    prompt,
-    user_id=user_id,
-    user_name=user_name,
-    guild_id=guild_id,
-)
+        prompt,
+        user_id=user_id,
+        user_name=user_name,
+        guild_id=guild_id,
+        image=image_b64,
+    )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw

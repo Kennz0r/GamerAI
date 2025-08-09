@@ -11,6 +11,11 @@ function App() {
   const [timings, setTimings] = React.useState({ speech_ms: 0, llm_ms: 0, tts_ms: 0, total_ms: 0 });
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
+  const [screenshot, setScreenshot] = React.useState(null);
+  const canvasRef = React.useRef(null);
+  const imgRef = React.useRef(null);
+  const dragRef = React.useRef(null);
+  const [crop, setCrop] = React.useState(null);
   const [piperSettings, setPiperSettings] = React.useState({
     voice: '',
     rate: '1.0',
@@ -95,6 +100,77 @@ function App() {
     setRecording(false);
   };
 
+  const captureScreen = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const track = stream.getVideoTracks()[0];
+      const imageCapture = new ImageCapture(track);
+      const bitmap = await imageCapture.grabFrame();
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0);
+      track.stop();
+      const url = canvas.toDataURL('image/png');
+      setScreenshot(url);
+    } catch (err) {
+      console.error('Screen capture failed', err);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!screenshot) return;
+    const img = new Image();
+    img.src = screenshot;
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = img.width;
+      canvas.height = img.height;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      imgRef.current = img;
+    };
+  }, [screenshot]);
+
+  const startCrop = e => {
+    if (!imgRef.current) return;
+    const rect = e.target.getBoundingClientRect();
+    dragRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+  const moveCrop = e => {
+    if (!dragRef.current || !imgRef.current) return;
+    const rect = e.target.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgRef.current, 0, 0);
+    ctx.strokeStyle = 'red';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dragRef.current.x, dragRef.current.y, x - dragRef.current.x, y - dragRef.current.y);
+  };
+  const endCrop = e => {
+    if (!dragRef.current) return;
+    const rect = e.target.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const startX = dragRef.current.x;
+    const startY = dragRef.current.y;
+    setCrop({ x: Math.min(startX, x), y: Math.min(startY, y), w: Math.abs(x - startX), h: Math.abs(y - startY) });
+    dragRef.current = null;
+  };
+
+  const getCroppedImage = () => {
+    if (!imgRef.current) return null;
+    const img = imgRef.current;
+    const c = crop || { x: 0, y: 0, w: img.width, h: img.height };
+    const out = document.createElement('canvas');
+    out.width = c.w;
+    out.height = c.h;
+    out.getContext('2d').drawImage(img, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h);
+    return out.toDataURL('image/png');
+  };
+
   const sendText = async (e) => {
     e.preventDefault();
     const payload = {
@@ -102,12 +178,18 @@ function App() {
       user_name: userName,
     };
     if (textChannelId) payload.channel_id = textChannelId;
+    if (screenshot) {
+      const img = getCroppedImage();
+      if (img) payload.image = img;
+    }
     await fetch('/queue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     setUserText('');
+    setScreenshot(null);
+    setCrop(null);
   };
 
   const updateSpeechEnabled = async enabled => {
@@ -241,6 +323,18 @@ function App() {
               }
             }}
           ></textarea><br />
+          {screenshot && (
+            <div>
+              <canvas
+                ref={canvasRef}
+                onMouseDown={startCrop}
+                onMouseMove={moveCrop}
+                onMouseUp={endCrop}
+                style={{ maxWidth: '100%', border: '1px solid #ccc' }}
+              ></canvas>
+            </div>
+          )}
+          <button type="button" onClick={captureScreen}>Capture Screen</button>
           <div className="send-controls">
             <button type="submit">Send to AI</button>
             <button
