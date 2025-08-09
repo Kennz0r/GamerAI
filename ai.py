@@ -64,6 +64,12 @@ WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "no")
 # Allow callers to tune compute precision to trade accuracy for speed.
 WHISPER_COMPUTE_GPU = os.getenv("WHISPER_COMPUTE_TYPE_GPU", "float16")
 WHISPER_COMPUTE_CPU = os.getenv("WHISPER_COMPUTE_TYPE_CPU", "int8")
+
+MEMORY_MODE = os.getenv("MEMORY_MODE", "light").lower()  # off | light | full
+MEMORY_DECAY_DAYS = int(os.getenv("MEMORY_DECAY_DAYS", "7"))
+MEMORY_MAX_TURNS  = int(os.getenv("MEMORY_MAX_TURNS", str(MAX_TURNS)))
+
+
 try:
     whisper_model = WhisperModel(
         WHISPER_MODEL,
@@ -264,6 +270,10 @@ Du er {p.get('name','Arne Borheim')}.
 - Hvis noe er uklart: be kort om omformulering, ikke gjett langt i vei.
 """.strip()
     msgs = [{"role": "system", "content": core}]
+    msgs.append({"role":"system","content":
+    "Bruk bare relevant kontekst. Ikke trekk inn gamle detaljer/minner "
+    "med mindre brukeren ber om det eksplisitt eller det er nødvendig for forståelsen."
+})
 
     if guild_id:
         blurb = guild_context_blurb(guild_id)
@@ -338,6 +348,34 @@ def _strip_noise_phrases(txt: str) -> str:
     # collapse doublespaces after removals
     return re.sub(r"\s{2,}", " ", txt).strip()
 
+_MEMORY_TRIGGERS = [
+    r"\b(husk|remember)\b",
+    r"\b(som sist|as before|same as last time|det vanlige)\b",
+    r"\b(forrige gang|previous( conversation)?)\b",
+]
+
+def _should_attach_memory(user_msg: str | None, user_id: str | None) -> bool:
+    if MEMORY_MODE == "off":
+        return False
+    if MEMORY_MODE == "full":
+        return True
+
+    # light-mode heuristics
+    txt = (user_msg or "").lower()
+    for pat in _MEMORY_TRIGGERS:
+        if re.search(pat, txt):
+            return True
+
+    # recent-activity grace: allow the short summary if they’ve been here recently
+    if user_id:
+        prof = USER_PROFILES.get(user_id, {})
+        last = prof.get("last_seen", 0)
+        import time as _t
+        if last and (_t.time() - last) <= MEMORY_DECAY_DAYS * 86400:
+            return True
+
+    return False
+
 def get_ai_response(
     user_msg: str,
     user_id: str | None = None,
@@ -380,7 +418,7 @@ def get_ai_response(
             messages.append({"role": "system", "content": profile_blurb})
 
         # defensively trim history to reduce prompt size
-        history = USER_MEMORIES.get(user_id, [])[-(MAX_TURNS * 2):]
+        history = USER_MEMORIES.get(user_id, [])[-(MEMORY_MAX_TURNS * 2):]
         messages.extend(history)
     user_msg = _clean_names_and_labels_in(user_msg)
     if image:
