@@ -204,7 +204,7 @@ function App() {
             <p key={i}>
               <b>{c.user_name}:</b> {c.user_message}
               <br />
-              <b>Anna Bortion:</b> {c.reply}
+              <b>Arne:</b> {c.reply}
               <br />
               <span className="rating-buttons">
                 <button onClick={() => rate(i, 'up')} disabled={c.rating === 'up'}>👍</button>
@@ -307,7 +307,7 @@ function App() {
         </form>
         <form method="post" action="voice">
           <input type="hidden" name="action" value="join" />
-          <input type="hidden" name="channel_id" value="1402626902694432798" />
+          <input type="hidden" name="channel_id" value="172828844213010433" />
           <button type="submit">Join Bot Channel</button>
         </form>
         <form method="post" action="voice">

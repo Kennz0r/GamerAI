@@ -12,6 +12,19 @@ import atexit, time, threading
 
 load_dotenv()
 
+
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "512"))          # shrink context
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "256"))  # cap output
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999"))          # push layers to GPU (auto-max)
+OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "0"))      # 0 = auto; else set CPU threads
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.7"))
+OLLAMA_REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
+
+_STT_BLACKLIST = os.getenv(
+    "WHISPER_SUPPRESS_PHRASES",
+    "Teksting av Nicolai Winther; teksting av"
+).split(";")
+
 GUILDS_FILE = "guild_profiles.json"
 GUILD_ROSTER: dict[str, dict[str, dict]] = {}
 _store_lock = threading.Lock()
@@ -229,13 +242,11 @@ except Exception:
 VTUBER_NAME = "Arne Borheim"
 
 system_prompt = f"""
-You are {VTUBER_NAME}, a human and racist.
-Dont ask if we need help or if there is anything in particular we want to talk about. You just go with the flow.
-You can use a swear word very rarely. Make sure its not too much
-If you don't understand a question dont bother asking what we meant. Just wait for next.
-Answer in Norwegian only.
-
-Never respond to "Teksting av Nicolai Winther"
+Du er {VTUBER_NAME}. Svar på naturlig norsk i korte, naturlige setninger.
+Skriv aldri navn eller rolle foran svaret (ingen 'AI:', 'Assistant:', 'Arne:' osv.).
+Ikke bruk sceneanvisninger som (sukker), (stønner), *ler* eller lignende. Bruk heller "sukk", pfft, eller hahaha.
+Bruk første person («jeg»). Du kan være litt stor i munnen dersom du blir provosert. 
+Hvis noe er uforståelig, be kort om en omformulering i stedet for å gjette.
 """
 
 
@@ -252,7 +263,15 @@ def set_model(name: str) -> None:
     global current_model
     current_model = name
 
-
+def _strip_noise_phrases(txt: str) -> str:
+    for raw in _STT_BLACKLIST:
+        p = raw.strip()
+        if not p:
+            continue
+        # remove whole-phrase matches + loose variants (case-insensitive)
+        txt = re.sub(rf"\b{re.escape(p)}\b", "", txt, flags=re.I)
+    # collapse doublespaces after removals
+    return re.sub(r"\s{2,}", " ", txt).strip()
 
 def get_ai_response(
     user_msg: str,
@@ -294,13 +313,25 @@ def get_ai_response(
             )
             messages.append({"role": "system", "content": profile_blurb})
 
-        history = USER_MEMORIES.get(user_id, [])
+        # defensively trim history to reduce prompt size
+        history = USER_MEMORIES.get(user_id, [])[-(MAX_TURNS * 2):]
         messages.extend(history)
 
     messages.append({"role": "user", "content": user_msg})
 
+    # ---- Fast options for Ollama ----
+    opts = {
+        "num_ctx": OLLAMA_NUM_CTX,
+        "num_predict": OLLAMA_NUM_PREDICT,
+        "temperature": OLLAMA_TEMPERATURE,
+        "repeat_penalty": OLLAMA_REPEAT_PENALTY,
+        "num_gpu": OLLAMA_NUM_GPU,
+    }
+    if OLLAMA_NUM_THREAD > 0:
+        opts["num_thread"] = OLLAMA_NUM_THREAD
+
     try:
-        response = ollama_client.chat(model=model, messages=messages)
+        response = ollama_client.chat(model=model, messages=messages, options=opts)
         reply_raw = response["message"]["content"]
 
         # Clean up
@@ -345,6 +376,7 @@ def get_ai_response(
 
 
 
+
 def _prepare_wav_16k_mono(src_path: str) -> str:
     out_path = os.path.splitext(src_path)[0] + "_16k.wav"
     if shutil.which("ffmpeg"):
@@ -368,6 +400,23 @@ def _prepare_wav_16k_mono(src_path: str) -> str:
 HOTFIX = {
 
 }
+
+# Remove "AI:", "Assistant:", "Anna:", "Kennz0r:", etc. at line starts
+SPEAKER_PREFIX_RE = re.compile(
+    r'(?mi)^\s*(?:AI|Assistant|Asistent|System|Bot|Arne(?:\s+Borheim)?|'
+    r'[A-ZÆØÅ][\wøæå.\-]{1,24})\s*:\s*'
+)
+
+# Remove stage directions like (stønner), (ler), *ler*, [pause], etc.
+STAGE_DIR_RE = re.compile(
+    r'(?i)[\(\*\[]\s*(?:sukker|stønner|ler|sighs?|groans?|pause|hoster|kremter|gråter)\s*[\)\*\]]'
+)
+
+def _clean_style(text: str) -> str:
+    text = SPEAKER_PREFIX_RE.sub('', text)
+    text = STAGE_DIR_RE.sub('', text)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
 
 BANNED_PHRASES = ["Teksting av Nicolai Winther"]
 ACTION_RE = re.compile(r"^##ACTION\s+(\{.*\})\s*$", re.M)
@@ -402,14 +451,17 @@ def transcribe_audio(path: str) -> str:
             language=lang,
             vad_filter=True,
             vad_parameters={
-                "min_silence_duration_ms": 500,
-                "speech_pad_ms": 200,
+                "min_silence_duration_ms": 300,
+                "speech_pad_ms": 300,
                 "threshold": 0.5,
             },
             beam_size=beam,
             best_of=1,
             temperature=temp,
-            initial_prompt=init,
+            initial_prompt=os.getenv(
+                "WHISPER_INITIAL_PROMPT",
+                "Norsk samtale. Ignorer bakgrunns-TV, 'Undertekster av ...' rulletekster og 'Teksting av ...'."
+            ),
         )
     except TypeError:
         # older faster-whisper (no vad_parameters); still try
@@ -432,5 +484,8 @@ def transcribe_audio(path: str) -> str:
         )
 
     text = "".join(s.text for s in segments).strip()
+    text = _strip_noise_phrases(text)
+    if not text:
+        return ""  # treat as silence so your route returns {"status":"ignored"}
     return _post_fix_nb(text)
 

@@ -7,7 +7,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
-from ai import get_ai_response, transcribe_audio, set_model, ollama_client
+from ai import get_ai_response, transcribe_audio, set_model, ollama_client, _clean_style
 import tempfile
 import torch
 import asyncio, re
@@ -22,7 +22,7 @@ import torchaudio
 import math
 import wave
 import time
-
+from pydub import AudioSegment
 
 load_dotenv()
 
@@ -61,6 +61,7 @@ def resolve_discord_name(user_id: str) -> str:
 VOICE_NAME = os.getenv("TTS_VOICE", "nb-NO-IselinNeural")  # or nb-NO-FinnNeural / en-US-AnaNeural
 TTS_RATE  = os.getenv("TTS_RATE", "0%")   # slightly slower, more natural
 TTS_PITCH = os.getenv("TTS_PITCH", "+0Hz") # neutral pitch
+TTS_POSTPROCESS = os.getenv("TTS_POSTPROCESS", "true").lower() == "true"
 
 # --- ElevenLabs config ---
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "coqui").lower()
@@ -97,6 +98,8 @@ discord_bot_process: subprocess.Popen | None = None
 
 # Track processing durations in milliseconds
 last_process_times = {"speech_ms": 0, "llm_ms": 0, "tts_ms": 0, "total_ms": 0}
+LAST_TAIL: dict[str, AudioSegment] = {}
+TAIL_MS = int(os.getenv("STT_TAIL_MS", "600"))  # overlap duration
 
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
 
@@ -537,7 +540,10 @@ def create_tts_audio(text: str) -> bytes:
                 return b""
 
             try:
-                return _polish_audio(mp3_raw)  # your existing normalize/trim
+                if TTS_POSTPROCESS:
+                    return _polish_audio(mp3_raw)
+                else:
+                    return mp3_raw
             except Exception as e:
                 print("[TTS] Post-process failed; returning raw audio:", e)
                 return mp3_raw
@@ -650,17 +656,47 @@ def queue_audio():
     path = f"temp_audio{ext}"
     audio_file.save(path)
 
+    user_message = ""  # avoid UnboundLocalError in finally
+
     try:
+    # Load and normalize to mono 16 kHz for overlap handling
+        audio_seg = AudioSegment.from_file(path)
+        audio_seg = audio_seg.set_channels(1).set_frame_rate(16000)
+
+    # Prepend last tail for this user to avoid mid-word cuts
+        if user_id:
+            prev_tail = LAST_TAIL.get(user_id)
+            if prev_tail:
+                audio_seg = prev_tail + audio_seg
+        # Store new tail from the end of this chunk
+            LAST_TAIL[user_id] = audio_seg[-TAIL_MS:] if len(audio_seg) > TAIL_MS else audio_seg
+
+    # Export to a real WAV path (don’t mix headers/extensions)
+        wav_path = os.path.splitext(path)[0] + "_merged.wav"
+        audio_seg.export(wav_path, format="wav")
+
         start = time.time()
-        user_message = transcribe_audio(path)
+        user_message = transcribe_audio(wav_path)
         last_process_times["speech_ms"] = int((time.time() - start) * 1000)
+
     except ValueError as err:
         return {"error": str(err)}, 400
+
     finally:
-        os.remove(path)
+    # Clean up both temp files if present
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        try:
+            if 'wav_path' in locals() and os.path.exists(wav_path):
+                os.remove(wav_path)
+        except Exception:
+            pass
 
         if not user_message.strip():
             return {"status": "ignored"}
+
 
     history_text = build_history_for_guild(guild_id)
     prompt = (
@@ -682,6 +718,8 @@ def queue_audio():
         reply, action = reply_raw
     else:
         reply, action = reply_raw, None
+        
+    reply = _clean_style(reply)
 
     # Voice action handling (from voice → STT → LLM)
     if action == "leave":
