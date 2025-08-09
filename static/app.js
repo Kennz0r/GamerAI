@@ -89,6 +89,10 @@ function App() {
       formData.append('file', file);
       if (textChannelId) formData.append('channel_id', textChannelId);
       formData.append('user_name', userName);
+      if (screenshot) {
+        const img = getCroppedImage();
+        if (img) formData.append('image', img);
+      }
       await fetch('/queue_audio', { method: 'POST', body: formData });
     };
     mediaRecorderRef.current.start();

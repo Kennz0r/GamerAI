@@ -649,6 +649,10 @@ def queue_audio():
     user_id = (request.form.get("user_id") or "").strip() or None
     guild_id   = (request.form.get("guild_id") or "").strip() or None
     audio_file = request.files.get("file")
+    image_data = request.form.get("image")
+    image_b64 = None
+    if image_data:
+        image_b64 = image_data.split(",", 1)[1] if "," in image_data else image_data
     start_total = time.time()
     if not audio_file:
         return {"error": "no file"}, 400
@@ -717,6 +721,7 @@ def queue_audio():
     user_id=user_id,
     user_name=user_name,
     guild_id=guild_id,
+    image=image_b64,
 )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
