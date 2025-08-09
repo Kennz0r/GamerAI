@@ -380,15 +380,12 @@ def get_ai_response(
         messages.extend(history)
     user_msg = _clean_names_and_labels_in(user_msg)
     if image:
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": user_msg},
-                ],
-            }
-        )
+    # ✅ Correct format for Ollama multimodal
+        messages.append({
+            "role": "user",
+            "content": user_msg,   # must be a string
+            "images": [image],     # base64 (no data: prefix), already prepared upstream
+        })
     else:
         messages.append({"role": "user", "content": user_msg})
 

@@ -1,4 +1,5 @@
 function App() {
+  
   const [conversation, setConversation] = React.useState([]);
   const [pending, setPending] = React.useState('');
   const [recording, setRecording] = React.useState(false);
@@ -6,8 +7,15 @@ function App() {
   const [userName, setUserName] = React.useState('');
   const [userText, setUserText] = React.useState('');
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
-  const [discordEnabled, setDiscordEnabled] = React.useState(true);
-  const [ttsEnabled, setTtsEnabled] = React.useState(true);
+  const [discordEnabled, setDiscordEnabled] = React.useState(() => {
+    const stored = localStorage.getItem('discordEnabled');
+    return stored !== null ? JSON.parse(stored) : true;
+  });
+  const [ttsEnabled, setTtsEnabled] = React.useState(() => {
+    const stored = localStorage.getItem('ttsEnabled');
+    return stored !== null ? JSON.parse(stored) : true;
+  });
+  const [botRunning, setBotRunning] = React.useState(false);
   const [timings, setTimings] = React.useState({ speech_ms: 0, llm_ms: 0, tts_ms: 0, total_ms: 0 });
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
@@ -29,6 +37,16 @@ function App() {
   const chunksRef = React.useRef([]);
   const conversationEndRef = React.useRef(null);
 
+  const [watching, setWatching] = React.useState(false);
+  const [watcherStatus, setWatcherStatus] = React.useState('Idle');
+  const [watcherPrompt, setWatcherPrompt] = React.useState('Se på bildet sporadisk og sleng en kort kommentar tild et du ser).');
+
+  const watcherVideoRef = React.useRef(null);
+  const watcherCanvasRef = React.useRef(null);
+  const watcherTimerRef = React.useRef(null);
+  const watcherStreamRef = React.useRef(null);
+
+
   const statusClass = enabled => `status-button ${enabled ? 'on' : 'off'}`;
 
   React.useEffect(() => {
@@ -44,7 +62,13 @@ function App() {
         .then(data => setSpeechEnabled(data.enabled));
       fetch('/discord_send')
         .then(res => res.json())
-        .then(data => setDiscordEnabled(data.enabled));
+        .then(data => {
+          setDiscordEnabled(data.enabled);
+          localStorage.setItem('discordEnabled', JSON.stringify(data.enabled));
+        });
+      fetch('/discord_bot')
+        .then(res => res.json())
+        .then(data => setBotRunning(data.running));
       fetch('/log')
         .then(res => res.json())
         .then(data => setLog(data.log));
@@ -218,6 +242,13 @@ function App() {
       data = { enabled };
     }
     setDiscordEnabled(!!data.enabled);
+    localStorage.setItem('discordEnabled', JSON.stringify(!!data.enabled));
+  };
+
+  const toggleTts = () => {
+    const val = !ttsEnabled;
+    setTtsEnabled(val);
+    localStorage.setItem('ttsEnabled', JSON.stringify(val));
   };
 
   const updatePiperSetting = (field, value) => {
@@ -232,20 +263,22 @@ function App() {
     });
   };
 
-  const startBot = async () => {
-    await fetch('/discord_bot', {
+  const toggleBot = async () => {
+  const action = botRunning ? 'stop' : 'start';
+  const res = await fetch('/discord_bot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'start' }),
+      body: JSON.stringify({ action }),
     });
-  };
-
-  const stopBot = async () => {
-    await fetch('/discord_bot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'stop' }),
-    });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (e) {}
+    if (data.status === 'started' || data.status === 'already_running') {
+      setBotRunning(true);
+    } else if (data.status === 'stopped' || data.status === 'not_running') {
+      setBotRunning(false);
+    }
   };
 
   const sendPendingToDiscord = async e => {
@@ -280,6 +313,116 @@ function App() {
     const data = await res.json();
     alert(JSON.stringify(data));
   };
+
+    async function startWatcher() {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 5 }, audio: false
+      });
+      watcherStreamRef.current = stream;
+
+      // auto-stop when sharing ends
+      stream.getVideoTracks()[0].addEventListener('ended', stopWatcher);
+
+      // hidden video to draw frames from
+      if (!watcherVideoRef.current) {
+        const v = document.createElement('video');
+        v.muted = true;
+        v.playsInline = true;
+        watcherVideoRef.current = v;
+      }
+      watcherVideoRef.current.srcObject = stream;
+      await watcherVideoRef.current.play();
+
+      if (!watcherCanvasRef.current) {
+        watcherCanvasRef.current = document.createElement('canvas');
+      }
+
+      setWatching(true);
+      setWatcherStatus('Watching…');
+
+      // tick every 1.5s
+      watcherTimerRef.current = setInterval(captureAndSendFrame, 1500);
+      document.addEventListener('visibilitychange', onWatcherVisibility, { passive: true });
+    } catch (e) {
+      console.error('Screen share denied/failed:', e);
+      setWatcherStatus('Permission denied or failed');
+    }
+  }
+
+  function stopWatcher() {
+    if (watcherTimerRef.current) { clearInterval(watcherTimerRef.current); watcherTimerRef.current = null; }
+    document.removeEventListener('visibilitychange', onWatcherVisibility);
+
+    const v = watcherVideoRef.current;
+    if (v) v.srcObject = null;
+
+    if (watcherStreamRef.current) {
+      watcherStreamRef.current.getTracks().forEach(t => t.stop());
+      watcherStreamRef.current = null;
+    }
+    setWatching(false);
+    setWatcherStatus('Stopped');
+  }
+
+  function onWatcherVisibility() {
+    if (document.visibilityState === 'hidden') {
+      if (watcherTimerRef.current) { clearInterval(watcherTimerRef.current); watcherTimerRef.current = null; }
+      setWatcherStatus('Paused (tab hidden)');
+    } else if (document.visibilityState === 'visible' && watching && !watcherTimerRef.current) {
+      setWatcherStatus('Watching…');
+      watcherTimerRef.current = setInterval(captureAndSendFrame, 1500);
+    }
+  }
+
+  async function captureAndSendFrame() {
+    try {
+      const v = watcherVideoRef.current;
+      if (!v || v.readyState < 2) return;
+
+      // downscale to speed up (max width 1280)
+      const maxW = 1280;
+      const scale = Math.min(1, maxW / (v.videoWidth || maxW));
+      const w = Math.max(1, Math.floor((v.videoWidth || maxW) * scale));
+      const h = Math.max(1, Math.floor((v.videoHeight || Math.round(maxW * 9/16)) * scale));
+
+      const c = watcherCanvasRef.current;
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(v, 0, 0, w, h);
+
+      // JPEG reduces payload size a lot vs PNG
+      const dataUrl = c.toDataURL('image/jpeg', 0.7);
+
+      const body = {
+        user_message: watcherPrompt,
+        user_name: userName || 'ScreenWatcher',
+        image: dataUrl
+      };
+      if (textChannelId) body.channel_id = textChannelId;
+
+      const res = await fetch('/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        setWatcherStatus(`POST failed: ${res.status}`);
+        return;
+      }
+      setWatcherStatus('Sent frame');
+    } catch (e) {
+      console.error('capture/send error:', e);
+      setWatcherStatus('Error sending');
+    }
+  }
+
+  // cleanup on unmount
+  React.useEffect(() => {
+    return () => stopWatcher();
+  }, []);
+
 
   return (
     <div className="container">
@@ -338,6 +481,30 @@ function App() {
               ></canvas>
             </div>
           )}
+          <h3>Screen Watcher</h3>
+          <label>
+            <div style={{marginBottom: 6}}>Prompt sent with each frame:</div>
+            <textarea
+              rows="2"
+              cols="50"
+              value={watcherPrompt}
+              onChange={e => setWatcherPrompt(e.target.value)}
+              placeholder="What should the AI do each time it sees a new frame?"
+            />
+          </label>
+          <div className="send-controls" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className={statusClass(watching)}
+              onClick={watching ? stopWatcher : startWatcher}
+            >
+              {watching ? 'Stop Screen Watcher' : 'Start Screen Watcher'}
+            </button>
+            <span style={{ alignSelf: 'center', fontSize: 13, opacity: 0.8 }}>
+              {watcherStatus}
+            </span>
+          </div>
+
           <button type="button" onClick={captureScreen}>Capture Screen</button>
           <div className="send-controls">
             <button type="submit">Send to AI</button>
@@ -376,7 +543,7 @@ function App() {
         </button>
         <button
           className={statusClass(ttsEnabled)}
-          onClick={() => setTtsEnabled(!ttsEnabled)}
+          onClick={toggleTts}
         >
           TTS: {ttsEnabled ? 'On' : 'Off'}
         </button>
@@ -388,8 +555,12 @@ function App() {
           <p>Total: {timings.total_ms}</p>
         </div>
         <h2>Discord Bot</h2>
-        <button onClick={startBot}>Start Bot</button>
-        <button onClick={stopBot}>Stop Bot</button>
+        <button
+          className={statusClass(botRunning)}
+          onClick={toggleBot}
+        >
+          {botRunning ? 'Stop Bot' : 'Start Bot'}
+        </button>
         <h2>Speech Recognition</h2>
         <button
           className={statusClass(speechEnabled)}

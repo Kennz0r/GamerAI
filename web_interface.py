@@ -1090,6 +1090,9 @@ def persona_route():
 @app.route("/discord_bot", methods=["POST"])
 def control_discord_bot():
     global discord_bot_process
+    if request.method == "GET":
+        running = bool(discord_bot_process and discord_bot_process.poll() is None)
+        return jsonify({"running": running})
     data = request.get_json(force=True)
     action = data.get("action")
     if action == "start":
