@@ -339,6 +339,7 @@ def get_ai_response(
     user_id: str | None = None,
     user_name: str | None = None,
     guild_id: str | None = None,
+    image: str | None = None,
 ):
     model = current_model
     logger.info("Using model: %s", model)
@@ -378,7 +379,18 @@ def get_ai_response(
         history = USER_MEMORIES.get(user_id, [])[-(MAX_TURNS * 2):]
         messages.extend(history)
     user_msg = _clean_names_and_labels_in(user_msg)
-    messages.append({"role": "user", "content": user_msg})
+    if image:
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": user_msg},
+                ],
+            }
+        )
+    else:
+        messages.append({"role": "user", "content": user_msg})
 
     # ---- Fast options for Ollama ----
     opts = {
