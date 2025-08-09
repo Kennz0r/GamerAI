@@ -99,7 +99,7 @@ discord_bot_process: subprocess.Popen | None = None
 # Track processing durations in milliseconds
 last_process_times = {"speech_ms": 0, "llm_ms": 0, "tts_ms": 0, "total_ms": 0}
 LAST_TAIL: dict[str, AudioSegment] = {}
-TAIL_MS = int(os.getenv("STT_TAIL_MS", "600"))  # overlap duration
+TAIL_MS = int(os.getenv("STT_TAIL_MS", "900"))  # overlap duration
 
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
 
@@ -830,7 +830,22 @@ def rate_prompt():
     else:
         # Drop negatively rated entries so they aren't used for future training
         conversation.pop(index)
+
+    # Personality reinforcement (now inside the function)
+    try:
+        from ai import PERSONA, PERSONA_PATH
+        s = PERSONA.get("style", {})
+        delta = 0.05 if rating == "up" else -0.05
+        for knob in ["humor", "empathy", "conciseness"]:
+            s[knob] = float(min(1.0, max(0.0, float(s.get(knob, 0.5)) + delta)))
+        PERSONA["style"] = s
+        with open(PERSONA_PATH, "w", encoding="utf-8") as f:
+            json.dump(PERSONA, f, ensure_ascii=False, indent=2)
+    except Exception as _:
+        pass
+
     return jsonify({"status": "ok", "rating": rating})
+
 
 
 @app.route("/conversation_training", methods=["POST"])
@@ -1043,6 +1058,23 @@ def piper_settings():
 
     current = {k: os.getenv(env_key, defaults[k]) for k, env_key in mapping.items()}
     return jsonify(current)
+
+
+
+@app.route("/persona", methods=["GET","POST"])
+def persona_route():
+    from ai import PERSONA, PERSONA_PATH, load_persona
+    if request.method == "GET":
+        return jsonify(PERSONA)
+    data = request.get_json(force=True)
+    try:
+        PERSONA.update(data or {})
+        with open(PERSONA_PATH, "w", encoding="utf-8") as f:
+            json.dump(PERSONA, f, ensure_ascii=False, indent=2)
+        load_persona()
+        return jsonify({"status":"ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/discord_bot", methods=["POST"])

@@ -12,6 +12,20 @@ import atexit, time, threading
 
 load_dotenv()
 
+# --- Persona system ---
+import random
+PERSONA_PATH = os.getenv("PERSONA_PATH", "persona.json")
+PERSONA = {}
+def load_persona():
+    global PERSONA
+    try:
+        with open(PERSONA_PATH, "r", encoding="utf-8") as f:
+            PERSONA = json.load(f)
+    except Exception:
+        PERSONA = {}
+
+load_persona()
+
 
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "512"))          # shrink context
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "256"))  # cap output
@@ -22,7 +36,7 @@ OLLAMA_REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 _STT_BLACKLIST = os.getenv(
     "WHISPER_SUPPRESS_PHRASES",
-    "Teksting av Nicolai Winther; teksting av"
+    "Teksting av Nicolai Winther; teksting av; Undertekster av Ai-Media"
 ).split(";")
 
 GUILDS_FILE = "guild_profiles.json"
@@ -216,6 +230,53 @@ def _summarize_history(user_id: str):
         print("[MEM] summarize failed:", e)
 
 
+
+def _recent_user_mood(user_id: str | None) -> str:
+    if not user_id: 
+        return "nøytral"
+    msgs = [m.get("content","") for m in USER_MEMORIES.get(user_id, [])[-12:] if m.get("role")=="user"]
+    txt = " ".join(msgs[-6:]).lower()
+    if any(w in txt for w in ["takk", "bra", "nice", "kult", "perfekt", "digg", "supert"]): 
+        return "positiv"
+    if any(w in txt for w in ["irritert", "faen", "dritt", "lei", "funker ikke", "sint", "frustrert"]): 
+        return "frustrert"
+    return "nøytral"
+
+def build_system_prompt(user_id: str | None, guild_id: str | None) -> list[dict]:
+    p = PERSONA or {}
+    s = p.get("style", {})
+    mood = _recent_user_mood(user_id)
+    core = f"""
+Du er {p.get('name','Arne Borheim')}.
+- Personlighet: {p.get('bio','Tørrvittig norsk gamer som liker teknologi, litt frekk men vennlig.')} (mood: {mood})
+- Mål: {', '.join(p.get('goals', [])) or 'Vær hjelpsom, kortfattet og vennlig.'}
+- Stil (0..1): humor={s.get('humor',0.5)}, snark={s.get('snark',0.2)}, empati={s.get('empathy',0.6)},
+  banning={s.get('swearing',0.1)}, konsis={s.get('conciseness',0.7)}, formalitet={s.get('formality',0.2)}, emoji={s.get('emoji',0.1)}.
+- Ordforråd: bruk gjerne {', '.join(p.get('lexicon',{}).get('preferred', [])) or 'naturlige norske uttrykk'}.
+  Unngå: {', '.join(p.get('lexicon',{}).get('avoid', [])) or 'stiv forvaltningsspråk'}.
+- Tabu: {', '.join(p.get('taboos', [])) or 'ingen personangrep'}.
+- Sikkerhet: aldri {', '.join(p.get('safety',{}).get('never_do', [])) or 'ulovligheter' }.
+- Svar på naturlig norsk, korte setninger. Ikke skriv "AI:" eller scenebeskrivelser.
+- Hvis noe er uklart: be kort om omformulering, ikke gjett langt i vei.
+""".strip()
+    msgs = [{"role": "system", "content": core}]
+
+    if guild_id:
+        blurb = guild_context_blurb(guild_id)
+        if blurb:
+            msgs.append({"role": "system", "content": blurb})
+
+    if user_id:
+        prof = USER_PROFILES.get(user_id, {})
+        summary = USER_SUMMARIES.get(user_id, "")
+        note = prof.get("notes") or ""
+        if any([prof.get("name"), prof.get("aliases"), note, summary]):
+            msgs.append({"role": "system", "content":
+                f"Du snakker med bruker {user_id}. Notater: {note}. Sammendrag: {summary}."
+            })
+    return msgs
+
+
 # Configure logging to capture interactions with Ollama
 logger = logging.getLogger("ollama")
 if not logger.handlers:
@@ -289,7 +350,7 @@ def get_ai_response(
     if guild_id and user_id:
         remember_guild_user(guild_id, user_id, user_name)
 
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = build_system_prompt(user_id, guild_id)
 
     # Inject server-wide roster summary
     if guild_id:
@@ -356,6 +417,7 @@ def get_ai_response(
         reply = _clean_style(reply)                 # strips labels/stage directions
         reply = _clean_names_and_labels_in(reply)   # applies name mapping etc.
         reply = re.sub(r"\s{2,}", " ", reply).strip()
+        reply = _style_polish(reply)
 
         # Update per-user rolling memory + summaries
         if user_id:
@@ -378,6 +440,39 @@ def get_ai_response(
 
 
 
+
+
+
+def _style_polish(reply: str) -> str:
+    s = PERSONA.get("style", {})
+    # conciseness
+    conc = float(s.get("conciseness", 0.7))
+    if conc >= 0.7:
+        reply = re.sub(r'\s+', ' ', reply).strip()
+        if conc >= 0.85:
+            parts = re.split(r'(?<=[.!?])\s+', reply)
+            reply = " ".join(parts[:2])
+    # swearing softener
+    if PERSONA.get("safety",{}).get("soften_swears", True):
+        swaps = {
+            r"\bfaen\b": "fanken" if float(s.get("swearing",0.2)) < 0.4 else "faen",
+            r"\bhelvete\b": "pokker" if float(s.get("swearing",0.2)) < 0.4 else "helvete",
+        }
+        for k,v in swaps.items():
+            reply = re.sub(k, v, reply, flags=re.I)
+    # emoji
+    if float(s.get("emoji",0.1)) >= 0.2:
+        if not reply.endswith((")", "!", ".")) and len(reply) < 160:
+            reply += " 🙂"
+    # lexicon preferences
+    pref = PERSONA.get("lexicon",{}).get("preferred", [])
+    avoid = PERSONA.get("lexicon",{}).get("avoid", [])
+    for bad in avoid:
+        reply = re.sub(rf"\b{re.escape(bad)}\b", "", reply, flags=re.I)
+    import random as _rnd
+    if pref and _rnd.random() < 0.25:
+        reply = (reply + " " + _rnd.choice(pref)).strip()
+    return re.sub(r'\s{2,}', ' ', reply).strip()
 
 
 def _prepare_wav_16k_mono(src_path: str) -> str:
@@ -469,12 +564,12 @@ def transcribe_audio(path: str) -> str:
             language=lang,
             vad_filter=True,
             vad_parameters={
-                "min_silence_duration_ms": 300,
-                "speech_pad_ms": 300,
-                "threshold": 0.5,
+                "min_silence_duration_ms": 150,
+                "speech_pad_ms": 400,
+                "threshold": 0.4,
             },
             beam_size=beam,
-            best_of=1,
+            best_of=3,
             temperature=temp,
             initial_prompt=os.getenv(
                 "WHISPER_INITIAL_PROMPT",
