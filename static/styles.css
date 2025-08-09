@@ -92,3 +92,13 @@ form {
   gap: 10px;
   margin-top: 10px;
 }
+
+.status-button.on {
+  background-color: #2ecc71;
+  color: #fff;
+}
+
+.status-button.off {
+  background-color: #e74c3c;
+  color: #fff;
+}

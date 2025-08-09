@@ -21,6 +21,7 @@ import warnings
 import torchaudio
 import math
 import wave
+import time
 
 
 load_dotenv()
@@ -93,6 +94,9 @@ pending_tts_web: bytes | None = None
 # Handle for the optional Discord bot subprocess
 discord_bot_process: subprocess.Popen | None = None
 # Storage for optional fine-tuning examples
+
+# Track processing durations in milliseconds
+last_process_times = {"speech_ms": 0, "llm_ms": 0, "tts_ms": 0, "total_ms": 0}
 
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
 
@@ -557,6 +561,7 @@ def send_to_discord(channel_id: str, text: str) -> None:
 @app.route("/queue", methods=["POST"])
 def queue_message():
     data = request.get_json(force=True)
+    start_total = time.time()
     default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
     channel_id = data.get("channel_id") or default_channel
     user_message = data.get("user_message", "")
@@ -572,12 +577,14 @@ def queue_message():
         "Svar naturlig på norsk og hold tråden i samtalen."
     )
 
+    start = time.time()
     reply_raw = get_ai_response(
     prompt,
     user_id=user_id,
     user_name=user_name,
     guild_id=guild_id,
 )
+    last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
     else:
@@ -586,6 +593,8 @@ def queue_message():
        voice_command["action"] = "leave"
        voice_command["channel_id"] = data.get("channel_id")
        print(f"[Voice Command] Leave triggered by {user_name} (text)")
+       last_process_times["tts_ms"] = 0
+       last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
        return {"status": "voice_command", "command": "leave"}
 
     conversation.append({
@@ -599,7 +608,11 @@ def queue_message():
     })
 
     global pending_tts_web, pending_tts_discord
+    start = time.time()
     audio = create_tts_audio(reply)
+    last_process_times["tts_ms"] = int((time.time() - start) * 1000)
+    last_process_times["speech_ms"] = 0
+    last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
     pending_tts_web = audio
 
     if discord_send_enabled:
@@ -625,6 +638,7 @@ def queue_audio():
     user_id = (request.form.get("user_id") or "").strip() or None
     guild_id   = (request.form.get("guild_id") or "").strip() or None
     audio_file = request.files.get("file")
+    start_total = time.time()
     if not audio_file:
         return {"error": "no file"}, 400
 
@@ -637,7 +651,9 @@ def queue_audio():
     audio_file.save(path)
 
     try:
+        start = time.time()
         user_message = transcribe_audio(path)
+        last_process_times["speech_ms"] = int((time.time() - start) * 1000)
     except ValueError as err:
         return {"error": str(err)}, 400
     finally:
@@ -654,12 +670,14 @@ def queue_audio():
     "Svar naturlig på norsk og hold tråden i samtalen."
 )
 
+    start = time.time()
     reply_raw = get_ai_response(
     prompt,
     user_id=user_id,
     user_name=user_name,
     guild_id=guild_id,
 )
+    last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
     else:
@@ -670,6 +688,8 @@ def queue_audio():
         voice_command["action"] = "leave"
         voice_command["channel_id"] = channel_id  # bot will disconnect from any VC it’s in
         print(f"[Voice Command] Leave triggered by {user_name} (voice)")
+        last_process_times["tts_ms"] = 0
+        last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
         return {"status": "voice_command", "command": "leave"}
     conversation.append({
         "guild_id": guild_id,
@@ -682,7 +702,10 @@ def queue_audio():
     })
 
     global pending_tts_web, pending_tts_discord
+    start = time.time()
     audio = create_tts_audio(reply)
+    last_process_times["tts_ms"] = int((time.time() - start) * 1000)
+    last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
     pending_tts_web = audio
 
     if discord_send_enabled:
@@ -902,6 +925,12 @@ def discord_send_route():
         val = val.lower() in ("true", "1", "yes", "on")
     discord_send_enabled = bool(val)
     return jsonify({"enabled": discord_send_enabled})
+
+
+@app.route("/timings", methods=["GET"])
+def timings_route():
+    """Return timing information for last processed tasks."""
+    return jsonify(last_process_times)
 
 
 @app.route("/approve", methods=["POST"])
