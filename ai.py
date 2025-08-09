@@ -316,7 +316,7 @@ def get_ai_response(
         # defensively trim history to reduce prompt size
         history = USER_MEMORIES.get(user_id, [])[-(MAX_TURNS * 2):]
         messages.extend(history)
-
+    user_msg = _clean_names_and_labels_in(user_msg)
     messages.append({"role": "user", "content": user_msg})
 
     # ---- Fast options for Ollama ----
@@ -352,6 +352,9 @@ def get_ai_response(
         reply = re.sub(ACTION_RE, "", reply).strip()
         for phrase in BANNED_PHRASES:
             reply = reply.replace(phrase, "")
+            
+        reply = _clean_style(reply)                 # strips labels/stage directions
+        reply = _clean_names_and_labels_in(reply)   # applies name mapping etc.
         reply = re.sub(r"\s{2,}", " ", reply).strip()
 
         # Update per-user rolling memory + summaries
@@ -421,6 +424,21 @@ def _clean_style(text: str) -> str:
 BANNED_PHRASES = ["Teksting av Nicolai Winther"]
 ACTION_RE = re.compile(r"^##ACTION\s+(\{.*\})\s*$", re.M)
 
+USERNAME_MAP = json.loads(os.getenv("USERNAME_MAP", '{"Kennz0r":"Kenneth"}'))
+
+# Reuse the existing prefix stripper + add bold-name pattern
+BOLD_NAME_RE = re.compile(r'\*{1,2}\s*[\wøæåA-ZÆØÅ.\-]{2,24}\s*:\s*\*{0,2}', re.I)
+
+def _clean_names_and_labels_in(text: str) -> str:
+    # drop "AI:" / "Arne:" / "User:" at line starts
+    txt = SPEAKER_PREFIX_RE.sub('', text)
+    # drop "**Name:**" style labels
+    txt = BOLD_NAME_RE.sub('', txt)
+    # map usernames to real names
+    for nick, real in USERNAME_MAP.items():
+        if nick and real:
+            txt = re.sub(rf'\b{re.escape(nick)}\b', real, txt)
+    return re.sub(r'\s{2,}', ' ', txt).strip()
 def _post_fix_nb(text: str) -> str:
     out = text
     for wrong, right in HOTFIX.items():

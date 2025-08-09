@@ -7,7 +7,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, jsonify, send_from_directory
-from ai import get_ai_response, transcribe_audio, set_model, ollama_client, _clean_style
+from ai import get_ai_response, transcribe_audio, set_model, ollama_client
 import tempfile
 import torch
 import asyncio, re
@@ -719,7 +719,6 @@ def queue_audio():
     else:
         reply, action = reply_raw, None
         
-    reply = _clean_style(reply)
 
     # Voice action handling (from voice → STT → LLM)
     if action == "leave":
