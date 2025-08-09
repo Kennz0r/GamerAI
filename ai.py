@@ -9,6 +9,10 @@ from faster_whisper import WhisperModel
 from pydub import AudioSegment, effects
 import subprocess, shutil, io
 import atexit, time, threading
+import numpy as np, soundfile as sf, webrtcvad, subprocess
+from faster_whisper import WhisperModel
+import torch
+
 
 load_dotenv()
 
@@ -36,7 +40,7 @@ OLLAMA_REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
 
 _STT_BLACKLIST = os.getenv(
     "WHISPER_SUPPRESS_PHRASES",
-    "Teksting av Nicolai Winther; teksting av; Undertekster av Ai-Media"
+    "Teksting av Nicolai Winther; teksting av; Undertekster av Ai-Media; Norske navn;  Norsk bokmål; Norsk samtale"
 ).split(";")
 
 GUILDS_FILE = "guild_profiles.json"
@@ -407,7 +411,7 @@ def get_ai_response(
         # Clean up
         thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
         for thought in thoughts:
-            logger.info("Anna Bortion [think]: %s", thought.strip())
+            logger.info("Arne Borheim [think]: %s", thought.strip())
 
         action = None
         m = ACTION_RE.search(reply_raw)
@@ -440,7 +444,7 @@ def get_ai_response(
             if len(hist) - LAST_SUMMARY_LEN.get(user_id, 0) >= (MAX_TURNS * 2):
                 threading.Thread(target=_summarize_history, args=(user_id,), daemon=True).start()
 
-        logger.info("Anna Bortion (action=%s): %s", action, reply)
+        logger.info("Arne Borheim (action=%s): %s", action, reply)
         return reply, action
 
     except Exception as e:
@@ -543,85 +547,162 @@ def _clean_names_and_labels_in(text: str) -> str:
         if nick and real:
             txt = re.sub(rf'\b{re.escape(nick)}\b', real, txt)
     return re.sub(r'\s{2,}', ' ', txt).strip()
-def _post_fix_nb(text: str) -> str:
-    out = text
-    for wrong, right in HOTFIX.items():
-        out = re.sub(rf"\b{re.escape(wrong)}\b", right, out, flags=re.I)
-    # common punctuation capitalization for Norwegian:
-    out = re.sub(r"\s+([,.!?])", r"\1", out)
-    out = re.sub(r"(^|[.!?]\s+)([a-zæøå])", lambda m: m.group(1)+m.group(2).upper(), out)
-    return out
 
-def transcribe_audio(path: str) -> str:
+_STT_MODEL = None
+def _ensure_stt_model():
+    global _STT_MODEL
+    if _STT_MODEL is None:
+        size = os.getenv("WHISPER_MODEL", "large-v3")   # try "medium" if VRAM is low
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        compute = os.getenv("WHISPER_COMPUTE_TYPE_GPU", "float16") if device=="cuda" else "int8"
+        _STT_MODEL = WhisperModel(size, device=device, compute_type=compute)
+        print(f"[STT] faster-whisper {size} on {device} ({compute})")
+    return _STT_MODEL
+
+
+def _ffmpeg_denoise(in_wav: str) -> str:
     """
-    Transcribe a WAV file using faster-whisper with context tuning and denoise.
+    Try denoise. If anything fails, just return the original path.
+    - Use arnndn only if ARNNDN_MODEL exists
+    - Else try afftdn
     """
+    if os.getenv("STT_DENOISE", "true").lower() != "true":
+        return in_wav
 
-    initial_prompt = os.getenv("WHISPER_INITIAL_PROMPT", "").strip()
-    language = WHISPER_LANGUAGE or "no"
+    out = in_wav.replace(".wav", "_dn.wav")
 
-    # Optional: denoise + EQ before feeding into Whisper
+    # 1) arnndn only if model file is available
+    model_path = os.getenv("ARNNDN_MODEL", "").strip()  # e.g. C:/models/rnnoise-models/somnarnn.sim
+    if model_path and os.path.exists(model_path):
+        cmd = [
+            "ffmpeg","-y","-hide_banner","-loglevel","error",
+            "-i", in_wav,
+            "-af", f"highpass=f=100,lowpass=f=8000,arnndn=m='{model_path}'",
+            out
+        ]
+        rc = subprocess.run(cmd).returncode
+        if rc == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
+            print("[STT] Denoise: arnndn OK")
+            return out
+        else:
+            print("[STT] Denoise: arnndn failed, falling back to afftdn")
+
+    # 2) afftdn fallback (widely available)
+    cmd = [
+        "ffmpeg","-y","-hide_banner","-loglevel","error",
+        "-i", in_wav,
+        "-af", "highpass=f=100,lowpass=f=8000,afftdn=nr=12",
+        out
+    ]
+    rc = subprocess.run(cmd).returncode
+    if rc == 0 and os.path.exists(out) and os.path.getsize(out) > 0:
+        print("[STT] Denoise: afftdn OK")
+        return out
+
+    # 3) give up cleanly
+    print("[STT] Denoise: skipped (returning original)")
+    return in_wav
+
+
+def _webrtcvad_trim(in_wav: str, sr: int = 16000, frame_ms: int = 20, pad_ms: int = 250) -> str:
+    """
+    Keep only voiced frames with padding. If anything fails, return original.
+    """
+    if os.getenv("STT_WEBRTC_VAD", "true").lower() != "true":
+        return in_wav
+
     try:
-        clean_path = os.path.splitext(path)[0] + "_clean.wav"
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", path,
-                "-ac", "1", "-ar", "16000",
-                "-af", "highpass=f=80,lowpass=f=8000,afftdn=nf=-25",
-                clean_path
-            ],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
-        )
-        use_path = clean_path
-    except Exception as e:
-        print(f"[STT] ffmpeg prefilter failed, using raw audio: {e}")
-        use_path = path
+        audio, file_sr = sf.read(in_wav)  # float32 [-1,1]
+        if file_sr != sr:
+            import torchaudio, torch
+            wav = torch.tensor(audio).unsqueeze(0) if audio.ndim==1 else torch.tensor(audio.T)
+            wav = torchaudio.functional.resample(wav, file_sr, sr)
+            audio = wav.squeeze(0).numpy()
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
 
-    common_args = dict(
+        vad = webrtcvad.Vad(int(os.getenv("VAD_AGGRESSIVENESS", "1")))  # 0..3 (start gentle)
+        bytes_per_frame = int(sr * (frame_ms/1000.0)) * 2
+        pcm16 = np.clip(audio, -1, 1)
+        pcm16 = (pcm16 * 32768).astype(np.int16).tobytes()
+
+        frames = [pcm16[i:i+bytes_per_frame] for i in range(0, len(pcm16), bytes_per_frame)]
+
+        voiced = []
+        ring = max(1, int(pad_ms / frame_ms))
+        buf, speaking, tail = [], False, 0
+        for f in frames:
+            is_speech = len(f)==bytes_per_frame and vad.is_speech(f, sr)
+            if is_speech:
+                speaking = True; tail = ring; buf.append(f)
+            else:
+                if speaking:
+                    if tail > 0:
+                        buf.append(f); tail -= 1
+                    else:
+                        speaking = False
+                        if buf: voiced.extend(buf); buf = []
+                else:
+                    if len(buf) >= ring: buf.pop(0)
+                    buf.append(f)
+        if buf: voiced.extend(buf)
+
+        if not voiced:
+            print("[STT] VAD: produced empty; returning original")
+            return in_wav
+
+        out = in_wav.replace(".wav", "_vad.wav")
+        sf.write(out, np.frombuffer(b"".join(voiced), dtype=np.int16).astype(np.float32)/32768.0, sr)
+        print("[STT] VAD: trimmed OK")
+        return out
+    except Exception as e:
+        print("[STT] VAD: error, returning original:", e)
+        return in_wav
+
+
+
+
+def transcribe_audio(wav_path: str) -> str:
+    # 1) denoise safely
+    dn = _ffmpeg_denoise(wav_path)
+    # 2) VAD safely
+    vad_wav = _webrtcvad_trim(dn, sr=16000,
+                              frame_ms=int(os.getenv("VAD_FRAME_MS","20")),
+                              pad_ms=int(os.getenv("VAD_PAD_MS","250")))
+
+    model = _ensure_stt_model()
+    language = os.getenv("STT_LANG", "no")
+    initial_prompt = os.getenv("STT_INITIAL_PROMPT", "").strip() or None
+
+    segments, info = model.transcribe(
+        vad_wav,
         language=language,
-        vad_filter=True,  # enable VAD filtering to drop silence
+        vad_filter=False,                 # we already did WebRTC VAD
+        temperature=[0.0],                # deterministic
+        beam_size=int(os.getenv("STT_BEAM","5")),
+        best_of=int(os.getenv("STT_BEST_OF","5")),
         condition_on_previous_text=False,
-        initial_prompt=initial_prompt or None,
-        beam_size=5,
-        best_of=5,
-        without_timestamps=True
+        word_timestamps=False,
+        initial_prompt=initial_prompt,
     )
 
-    result_text = ""
-    temps = [0.0, 0.2, 0.4]
-    for t in temps:
-        try:
-            segments, _info = whisper_model.transcribe(
-                use_path, temperature=t, **common_args
-            )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-            if text:
-                result_text = text
-                break
-        except Exception as e:
-            print(f"[STT] Whisper error at temperature={t}: {e}")
+    pieces = []
+    min_chars   = int(os.getenv("STT_MIN_SEG_CHARS", "2"))
+    drop_nsp    = float(os.getenv("STT_DROP_NO_SPEECH", "0.60"))
+    min_logprob = float(os.getenv("STT_MIN_LOGPROB", "-1.0"))
 
-    # Cleanup temp file
-    if use_path != path:
-        try:
-            os.remove(use_path)
-        except:
-            pass
+    for s in segments:
+        t = (s.text or "").strip()
+        if len(t) < min_chars:
+            continue
+        if (getattr(s, "no_speech_prob", 0.0) or 0.0) > drop_nsp:
+            continue
+        if (getattr(s, "avg_logprob", 0.0) or 0.0) < min_logprob:
+            continue
+        pieces.append(t)
 
-    # Remove noise phrases (you already have _strip_noise_phrases)
-    result_text = _strip_noise_phrases(result_text)
+    return " ".join(pieces).strip()
 
-    # Apply post-correction map
-    MISHEAR_MAP = {
-        "Tekstring": "Teksting",
-        "Truen ass": "TrueNAS",
-        "prox mox": "Proxmox",
-        "op sense": "OPNsense",
-    }
-    for bad, good in MISHEAR_MAP.items():
-        result_text = re.sub(rf"\b{re.escape(bad)}\b", good, result_text, flags=re.I)
 
-    print(f"[STT] Final transcript: {result_text}")
-    return result_text
 
 

@@ -10,7 +10,8 @@ from flask import Flask, request, redirect, jsonify, send_from_directory
 from ai import get_ai_response, transcribe_audio, set_model, ollama_client
 import tempfile
 import torch
-import asyncio, re
+import asyncio
+import re, time
 import regex as reg
 from unidecode import unidecode
 from pydub import AudioSegment, effects
@@ -23,6 +24,8 @@ import math
 import wave
 import time
 from pydub import AudioSegment
+from difflib import SequenceMatcher
+from collections import deque
 
 load_dotenv()
 
@@ -63,6 +66,8 @@ TTS_RATE  = os.getenv("TTS_RATE", "0%")   # slightly slower, more natural
 TTS_PITCH = os.getenv("TTS_PITCH", "+0Hz") # neutral pitch
 TTS_POSTPROCESS = os.getenv("TTS_POSTPROCESS", "true").lower() == "true"
 
+IMAGE_USE_MODE = os.getenv("IMAGE_USE_MODE", "auto").lower()  # auto | always | never
+
 # --- ElevenLabs config ---
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "coqui").lower()
 ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY", "").strip()
@@ -100,8 +105,113 @@ discord_bot_process: subprocess.Popen | None = None
 last_process_times = {"speech_ms": 0, "llm_ms": 0, "tts_ms": 0, "total_ms": 0}
 LAST_TAIL: dict[str, AudioSegment] = {}
 TAIL_MS = int(os.getenv("STT_TAIL_MS", "900"))  # overlap duration
-
+STT_RECENT = {}  # channel_i
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
+
+VISUAL_PATTERNS = [
+    # Norwegian
+    r"\b(se|sjekk|kikk|ta en titt)( på)? .*(skjerm|bilde|screenshot|vindu|fane|kart)\b",
+    r"\b(på skjermen|i bildet|på bildet)\b",
+    r"\b(hva er dette|hva skjer nå|hva bør jeg gjøre nå)\b",
+    r"\b(hvor er jeg|hvor er det)\b",
+    r"\b(denne|dette|det her)\b",
+    # English
+    r"\b(look|check|see)( at)? .*(screen|image|picture|screenshot|window|tab|map)\b",
+    r"\b(on (the )?screen|in (the )?image)\b",
+    r"\b(what is this|what should i do now|where am i)\b",
+    r"\b(this|that)\b",
+]
+
+# --- STT post-processing helpers ---
+_STT_RECENT = {}  # channel_id -> deque[(timestamp, normalized_text)]
+
+
+def _needs_image(user_text: str) -> bool:
+    t = unidecode((user_text or "").lower()).strip()
+    if not t:
+        return False
+    # short deictic questions usually need vision
+    if re.search(r"\b(this|that|denne|dette|det her)\b", t) and len(t) <= 80:
+        return True
+    for pat in VISUAL_PATTERNS:
+        if re.search(pat, t):
+            return True
+    return False
+
+def _should_use_image(user_text: str, image_b64: str | None) -> bool:
+    if not image_b64:
+        return False
+    mode = IMAGE_USE_MODE
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return _needs_image(user_text)  # auto
+
+
+def _stt_norm(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    # drop most punctuation (keep nordic letters)
+    s = re.sub(r"[^\wæøåöäéèáàüçñ ]+", "", s)
+    return s.strip()
+
+def squash_stt(raw: str | list[str]) -> str:
+    """
+    Collapses multiple STT finals into one text:
+    - removes blanks
+    - removes near-duplicates that are basically the same line
+    """
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.splitlines() if p.strip()]
+    else:
+        parts = [p.strip() for p in raw if isinstance(p, str) and p.strip()]
+    if not parts:
+        return ""
+
+    out = []
+    for p in parts:
+        n = _stt_norm(p)
+        if len(n) < 3:  # ignore too-short (e.g., "i", "og")
+            continue
+        if out:
+            sim = SequenceMatcher(None, _stt_norm(out[-1]), n).ratio()
+            if sim > 0.92:
+                continue
+        out.append(p)
+    return " ".join(out).strip()
+
+def stt_should_drop(channel_id: str | None, text: str,
+                    min_chars: int = None, window_sec: int = None) -> bool:
+    """
+    Returns True if we should ignore this STT final:
+    - too short (min_chars)
+    - near-duplicate of something accepted in the last window_sec
+    """
+    min_chars = int(os.getenv("STT_MIN_CHARS", str(min_chars or 6)))
+    window_sec = int(os.getenv("STT_DEDUPE_WINDOW", str(window_sec or 10)))
+
+    n = _stt_norm(text)
+    if len(n) < min_chars:
+        return True
+
+    key = str(channel_id or "default")
+    dq = _STT_RECENT.setdefault(key, deque(maxlen=12))
+    now = time.time()
+
+    # drop if very similar to a recent accepted phrase
+    for ts, prev in list(dq):
+        if now - ts > window_sec:
+            continue
+        sim = SequenceMatcher(None, prev, n).ratio()
+        if sim > 0.90:
+            return True
+
+    # accept: remember it
+    dq.append((now, n))
+    return False
+
+
 
 def build_history_for_guild(guild_id: str | None, limit: int = HISTORY_TURNS) -> str:
     """Return compact recent turns for this guild only."""
@@ -562,6 +672,17 @@ def send_to_discord(channel_id: str, text: str) -> None:
     requests.post(url, headers=headers, json=payload, timeout=10)
 
 
+@app.route("/image_policy", methods=["GET", "POST"])
+def image_policy():
+    global IMAGE_USE_MODE
+    if request.method == "GET":
+        return jsonify({"mode": IMAGE_USE_MODE})
+    data = request.get_json(force=True) or {}
+    mode = str(data.get("mode", "auto")).lower()
+    if mode not in ("auto", "always", "never"):
+        return jsonify({"error": "invalid mode"}), 400
+    IMAGE_USE_MODE = mode
+    return jsonify({"mode": IMAGE_USE_MODE})
 
 
 @app.route("/queue", methods=["POST"])
@@ -588,12 +709,16 @@ def queue_message():
     )
 
     start = time.time()
+    use_img = _should_use_image(user_message, image_b64)
+    print(f"[IMG] policy: mode={IMAGE_USE_MODE}, attached={bool(use_img)}")
+    if use_img:
+        prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
     reply_raw = get_ai_response(
         prompt,
         user_id=user_id,
         user_name=user_name,
         guild_id=guild_id,
-        image=image_b64,
+        image=(image_b64 if use_img else None),
     )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
@@ -669,8 +794,8 @@ def queue_audio():
 
     try:
     # Load and normalize to mono 16 kHz for overlap handling
-        audio_seg = AudioSegment.from_file(path)
-        audio_seg = audio_seg.set_channels(1).set_frame_rate(16000)
+        audio_seg = AudioSegment.from_file(path).set_channels(1).set_frame_rate(16000)
+        audio_seg = effects.normalize(audio_seg)  # ← add this line
 
     # Prepend last tail for this user to avoid mid-word cuts
         if user_id:
@@ -687,6 +812,13 @@ def queue_audio():
         start = time.time()
         user_message = transcribe_audio(wav_path)
         last_process_times["speech_ms"] = int((time.time() - start) * 1000)
+        user_message = squash_stt(user_message)
+
+        if stt_should_drop(channel_id, user_message, min_chars=6, window_sec=10):
+            print(f"[STT] Suppressed short/duplicate: {user_message!r}")
+            return {"status": "ignored"}
+    
+        
 
     except ValueError as err:
         return {"error": str(err)}, 400
@@ -714,6 +846,9 @@ def queue_audio():
     + f"Nå sier {user_name}: {user_message}\n"
     "Svar naturlig på norsk og hold tråden i samtalen."
 )
+    use_img = _should_use_image(user_message, image_b64)
+    if use_img:
+        prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
 
     start = time.time()
     reply_raw = get_ai_response(
@@ -721,7 +856,7 @@ def queue_audio():
     user_id=user_id,
     user_name=user_name,
     guild_id=guild_id,
-    image=image_b64,
+    image=(image_b64 if use_img else None),
 )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
@@ -1116,6 +1251,8 @@ def control_discord_bot():
             return jsonify({"status": "stopped"})
         return jsonify({"status": "not_running"})
     return jsonify({"error": "unknown action"}), 400
+
+
 
 
 if __name__ == "__main__":

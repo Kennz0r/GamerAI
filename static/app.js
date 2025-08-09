@@ -52,16 +52,20 @@ function App() {
   const watcherTimerRef = React.useRef(null);
   const watcherStreamRef = React.useRef(null);
 
-  // Passive screen grab + auto-attach
-const [attachLatestFrame, setAttachLatestFrame] = React.useState(true);
-const [screenSourceActive, setScreenSourceActive] = React.useState(false);
-const [screenStatus, setScreenStatus] = React.useState('No screen selected');
+    // Passive screen grab + auto-attach
+  const [attachLatestFrame, setAttachLatestFrame] = React.useState(true);
+  const [screenSourceActive, setScreenSourceActive] = React.useState(false);
+  const [screenStatus, setScreenStatus] = React.useState('No screen selected');
 
-const latestFrameRef = React.useRef(null);
-const grabberVideoRef = React.useRef(null);
-const grabberCanvasRef = React.useRef(null);
-const grabberTimerRef = React.useRef(null);
-const grabberStreamRef = React.useRef(null);
+  const latestFrameRef = React.useRef(null);
+  const grabberVideoRef = React.useRef(null);
+  const grabberCanvasRef = React.useRef(null);
+  const grabberTimerRef = React.useRef(null);
+  const grabberStreamRef = React.useRef(null);
+
+  const [imagePolicy, setImagePolicy] = React.useState('auto'); // 'auto' | 'always' | 'never'
+  const [latestFrameUrl, setLatestFrameUrl] = React.useState(null);
+  const previewTickRef = React.useRef(0);
 
 
 
@@ -96,6 +100,10 @@ const grabberStreamRef = React.useRef(null);
       fetch('/timings')
         .then(res => res.json())
         .then(data => setTimings(data));
+      fetch('/image_policy')
+        .then(r => r.json())
+        .then(d => setImagePolicy(d.mode || 'auto'))
+        .catch(() => {});
     };
     fetchData();
     const interval = setInterval(fetchData, 2000);
@@ -165,6 +173,22 @@ const grabberStreamRef = React.useRef(null);
       console.error('Screen capture failed', err);
     }
   };
+
+  async function setServerImagePolicy(mode) {
+  try {
+    const res = await fetch('/image_policy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    const j = await res.json();
+    setImagePolicy(j.mode || mode);
+  } catch (e) {
+    console.warn('Failed to set image policy:', e);
+    setImagePolicy(mode); // optimistic UI
+  }
+}
+
 
   React.useEffect(() => {
     if (!screenshot) return;
@@ -535,6 +559,12 @@ function captureLatestFrame() {
 
   // store as data URL (your backend already accepts these)
   latestFrameRef.current = c.toDataURL('image/jpeg', 0.6);
+  // Throttle preview updates a bit to avoid excessive re-renders
+  const now = performance.now();
+  if (now - (previewTickRef.current || 0) > 500) {
+    setLatestFrameUrl(latestFrameRef.current);
+    previewTickRef.current = now;
+  }
 }
 
 function stopScreenSource() {
@@ -640,6 +670,7 @@ React.useEffect(() => () => stopScreenSource(), []);
               {watcherStatus}
             </span>
           </div>
+          
           <h3>Live Screen Attachment</h3>
 <div className="send-controls" style={{ gap: 8 }}>
   <button
@@ -662,6 +693,35 @@ React.useEffect(() => () => stopScreenSource(), []);
   <span style={{ alignSelf: 'center', fontSize: 13, opacity: 0.8 }}>
     {screenStatus}
   </span>
+</div>
+
+{/* Image policy control (dropdown) */}
+<div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+  <label style={{ fontSize: 13 }}>
+    Image policy:&nbsp;
+    <select
+      value={imagePolicy}
+      onChange={e => setServerImagePolicy(e.target.value)}
+    >
+      <option value="auto">Only when I ask (auto)</option>
+      <option value="always">Always attach (if available)</option>
+      <option value="never">Never attach</option>
+    </select>
+  </label>
+</div>
+
+{/* Live preview of the passive grabber frame */}
+<div style={{ marginTop: 10 }}>
+  <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 6 }}>
+    Latest captured frame {latestFrameUrl ? '' : '(no source yet)'}
+  </div>
+  {latestFrameUrl && (
+    <img
+      src={latestFrameUrl}
+      alt="Latest screen frame"
+      style={{ maxWidth: '100%', border: '1px solid #ccc', borderRadius: 8 }}
+    />
+  )}
 </div>
 
 
