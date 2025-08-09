@@ -37,6 +37,12 @@ function App() {
   const chunksRef = React.useRef([]);
   const conversationEndRef = React.useRef(null);
 
+  const [watchMode, setWatchMode] = React.useState('change'); // 'interval' | 'change'
+  const [watchSensitivity, setWatchSensitivity] = React.useState(35); // 5..95 (percent pixels changed)
+  const [watchMinGapMs, setWatchMinGapMs] = React.useState(10000); // at least 10s between sends
+  const lastTinyRef = React.useRef(null);    // Uint8Array of last tiny grayscale
+  const lastSentAtRef = React.useRef(0);
+
   const [watching, setWatching] = React.useState(false);
   const [watcherStatus, setWatcherStatus] = React.useState('Idle');
   const [watcherPrompt, setWatcherPrompt] = React.useState('Se på bildet sporadisk og sleng en kort kommentar tild et du ser).');
@@ -342,7 +348,7 @@ function App() {
       setWatcherStatus('Watching…');
 
       // tick every 1.5s
-      watcherTimerRef.current = setInterval(captureAndSendFrame, 1500);
+      watcherTimerRef.current = setInterval(captureAndSendFrame, 500);
       document.addEventListener('visibilitychange', onWatcherVisibility, { passive: true });
     } catch (e) {
       console.error('Screen share denied/failed:', e);
@@ -375,12 +381,12 @@ function App() {
     }
   }
 
-  async function captureAndSendFrame() {
+    async function captureAndSendFrame() {
     try {
       const v = watcherVideoRef.current;
       if (!v || v.readyState < 2) return;
 
-      // downscale to speed up (max width 1280)
+      // Draw full frame (downscaled) for sending
       const maxW = 1280;
       const scale = Math.min(1, maxW / (v.videoWidth || maxW));
       const w = Math.max(1, Math.floor((v.videoWidth || maxW) * scale));
@@ -391,7 +397,55 @@ function App() {
       const ctx = c.getContext('2d');
       ctx.drawImage(v, 0, 0, w, h);
 
-      // JPEG reduces payload size a lot vs PNG
+      // --- Lightweight change detection on a tiny grayscale thumbnail ---
+      // Downscale to tiny canvas to compute percent of changed pixels.
+      const TW = 96, TH = Math.max(1, Math.round((h / w) * 96));
+      const tc = document.createElement('canvas');
+      tc.width = TW; tc.height = TH;
+      const tctx = tc.getContext('2d');
+      tctx.drawImage(c, 0, 0, TW, TH);
+      const imgData = tctx.getImageData(0, 0, TW, TH).data;
+
+      // Convert to grayscale Uint8
+      const gray = new Uint8Array(TW * TH);
+      for (let i = 0, j = 0; i < imgData.length; i += 4, j++) {
+        // luma approximation
+        gray[j] = (imgData[i] * 299 + imgData[i+1] * 587 + imgData[i+2] * 114) / 1000;
+      }
+
+      let shouldSend = false;
+      if (watchMode === 'interval') {
+        // Only respect the min-gap
+        shouldSend = (performance.now() - lastSentAtRef.current) >= watchMinGapMs;
+      } else {
+        // 'change' mode: compute percent of pixels whose absolute diff > threshold
+        // threshold auto-scales from sensitivity (lower sensitivity => easier to trigger)
+        const last = lastTinyRef.current;
+        if (!last) {
+          shouldSend = true; // first frame
+        } else {
+          // Pick a per-pixel threshold from sensitivity (5..95 -> 40..8)
+          const perPixelThresh = Math.round(48 - (watchSensitivity * 0.42)); // ~8..48
+          let changed = 0;
+          for (let k = 0; k < gray.length; k++) {
+            if (Math.abs(gray[k] - last[k]) > perPixelThresh) changed++;
+          }
+          const pct = (changed / gray.length) * 100;
+          // Require both sufficient change AND min-gap since last send
+          if (pct >= watchSensitivity && (performance.now() - lastSentAtRef.current) >= watchMinGapMs) {
+            shouldSend = true;
+          }
+        }
+      }
+      // update last tiny always
+      lastTinyRef.current = gray;
+
+      if (!shouldSend) {
+        setWatcherStatus('No significant change');
+        return;
+      }
+
+      // JPEG compress for speed
       const dataUrl = c.toDataURL('image/jpeg', 0.7);
 
       const body = {
@@ -411,12 +465,14 @@ function App() {
         setWatcherStatus(`POST failed: ${res.status}`);
         return;
       }
+      lastSentAtRef.current = performance.now();
       setWatcherStatus('Sent frame');
     } catch (e) {
       console.error('capture/send error:', e);
       setWatcherStatus('Error sending');
     }
   }
+
 
   // cleanup on unmount
   React.useEffect(() => {
@@ -505,7 +561,40 @@ function App() {
             </span>
           </div>
 
-          <button type="button" onClick={captureScreen}>Capture Screen</button>
+                    <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+            <label style={{ fontSize: 13 }}>
+              Mode:&nbsp;
+              <select value={watchMode} onChange={e => setWatchMode(e.target.value)}>
+                <option value="change">On change</option>
+                <option value="interval">Interval only</option>
+              </select>
+            </label>
+
+            {watchMode === 'change' && (
+              <label style={{ fontSize: 13 }}>
+                Sensitivity ({watchSensitivity}% pixels must change):
+                <input
+                  type="range" min="5" max="95" step="1"
+                  value={watchSensitivity}
+                  onChange={e => setWatchSensitivity(parseInt(e.target.value, 10))}
+                  style={{ width: '100%' }}
+                />
+              </label>
+            )}
+
+            <label style={{ fontSize: 13 }}>
+              Min gap between sends (ms):
+              <input
+                type="number"
+                min="1000"
+                step="500"
+                value={watchMinGapMs}
+                onChange={e => setWatchMinGapMs(parseInt(e.target.value || '0', 10))}
+                style={{ width: 140, marginLeft: 8 }}
+              />
+            </label>
+          </div>
+
           <div className="send-controls">
             <button type="submit">Send to AI</button>
             <button
