@@ -8,6 +8,7 @@ function App() {
   const [speechEnabled, setSpeechEnabled] = React.useState(true);
   const [discordEnabled, setDiscordEnabled] = React.useState(true);
   const [ttsEnabled, setTtsEnabled] = React.useState(true);
+  const [timings, setTimings] = React.useState({ speech_ms: 0, llm_ms: 0, tts_ms: 0, total_ms: 0 });
   const [log, setLog] = React.useState('');
   const [showLog, setShowLog] = React.useState(false);
   const [piperSettings, setPiperSettings] = React.useState({
@@ -22,6 +23,8 @@ function App() {
   const mediaRecorderRef = React.useRef(null);
   const chunksRef = React.useRef([]);
   const conversationEndRef = React.useRef(null);
+
+  const statusClass = enabled => `status-button ${enabled ? 'on' : 'off'}`;
 
   React.useEffect(() => {
     const fetchData = () => {
@@ -43,6 +46,9 @@ function App() {
       fetch('/piper_settings')
         .then(res => res.json())
         .then(data => setPiperSettings(data));
+      fetch('/timings')
+        .then(res => res.json())
+        .then(data => setTimings(data));
     };
     fetchData();
     const interval = setInterval(fetchData, 2000);
@@ -237,7 +243,11 @@ function App() {
           ></textarea><br />
           <div className="send-controls">
             <button type="submit">Send to AI</button>
-            <button type="button" onClick={recording ? stopRecording : startRecording}>
+            <button
+              type="button"
+              className={statusClass(recording)}
+              onClick={recording ? stopRecording : startRecording}
+            >
               {recording ? 'Stop Recording' : 'Record Mic'}
             </button>
           </div>
@@ -260,19 +270,35 @@ function App() {
         ) : (
           <p>No pending message.</p>
         )}
-        <button onClick={() => updateDiscordEnabled(!discordEnabled)}>
+        <button
+          className={statusClass(discordEnabled)}
+          onClick={() => updateDiscordEnabled(!discordEnabled)}
+        >
           Send to Discord: {discordEnabled ? 'On' : 'Off'}
         </button>
-        <button onClick={() => setTtsEnabled(!ttsEnabled)}>
+        <button
+          className={statusClass(ttsEnabled)}
+          onClick={() => setTtsEnabled(!ttsEnabled)}
+        >
           TTS: {ttsEnabled ? 'On' : 'Off'}
         </button>
+        <div className="timings">
+          <h2>Task Timings (ms)</h2>
+          <p>Speech Detection: {timings.speech_ms}</p>
+          <p>LLM: {timings.llm_ms}</p>
+          <p>TTS: {timings.tts_ms}</p>
+          <p>Total: {timings.total_ms}</p>
+        </div>
         <h2>Discord Bot</h2>
         <button onClick={startBot}>Start Bot</button>
         <button onClick={stopBot}>Stop Bot</button>
         <h2>Speech Recognition</h2>
-        <p>Status: {speechEnabled ? 'Enabled' : 'Disabled'}</p>
-        <button onClick={() => updateSpeechEnabled(false)}>Disable Speech Recognition</button>
-        <button onClick={() => updateSpeechEnabled(true)}>Enable Speech Recognition</button>
+        <button
+          className={statusClass(speechEnabled)}
+          onClick={() => updateSpeechEnabled(!speechEnabled)}
+        >
+          Speech Recognition: {speechEnabled ? 'On' : 'Off'}
+        </button>
         <h2>Voice Control</h2>
         <form method="post" action="voice">
           <input type="hidden" name="action" value="join" />
