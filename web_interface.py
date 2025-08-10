@@ -1056,6 +1056,12 @@ def get_log():
 @app.route("/tts_audio", methods=["GET"])
 def get_tts_audio():
     global pending_tts_discord
+    wait_ms = int(request.args.get("wait_ms", "0"))
+    if not pending_tts_discord and wait_ms > 0:
+        deadline = time.time() + (wait_ms / 1000.0)
+        while (pending_tts_discord is None) and time.time() < deadline:
+            time.sleep(0.05)
+
     if pending_tts_discord:
         data = pending_tts_discord
         pending_tts_discord = None
@@ -1162,6 +1168,11 @@ def set_voice_command():
 
 @app.route("/voice", methods=["GET"])
 def get_voice_command():
+    wait_ms = int(request.args.get("wait_ms", "0"))
+    if not voice_command["action"] and wait_ms > 0:
+        deadline = time.time() + (wait_ms / 1000.0)
+        while (not voice_command["action"]) and time.time() < deadline:
+            time.sleep(0.05)
     if voice_command["action"]:
         result = {"action": voice_command["action"], "channel_id": voice_command["channel_id"]}
         voice_command["action"] = None

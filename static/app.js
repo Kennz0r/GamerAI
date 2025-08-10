@@ -553,9 +553,7 @@ async function grabScreenAsDataURL() {
   const c = document.createElement('canvas');
   c.width = video.videoWidth || 1280;
   c.height = video.videoHeight || 720;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(video, 0, 0, c.width, c.height);
-  // jpg er mindre; serveren din forventer data:image/* (data-URI) uansett
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.85);
 }
 
@@ -572,14 +570,15 @@ setInterval(async () => {
       method: 'POST',
       headers: {'content-type': 'application/json'},
       body: JSON.stringify({
-        channel_id: req.channel_id || null, // serveren kan resolve guild fra channel
+        channel_id: req.channel_id || null,
         guild_id: req.guild_id || null,
         image: dataUrl
       })
     });
-  } catch (_) {}
+  } catch (e) {
+    // stille feil
+  }
 }, 400);
-
 
 function captureLatestFrame() {
   const v = grabberVideoRef.current;
