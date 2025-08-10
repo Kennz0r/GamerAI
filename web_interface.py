@@ -641,14 +641,14 @@ def queue_message():
     if not img_present and _needs_image(user_message):
         _vision_signal(channel_id, guild_id)
     # vent et kort øyeblikk på at web pusher via /vision/update
-    if guild_id and VISION_AWAIT_MS > 0:
-        deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
-        while time.time() < deadline:
-            cached = _vision_get(guild_id)
-            if cached:
-                image_b64, img_present, img_src = cached, True, "webpush"
-                break
-            time.sleep(0.05)
+        if guild_id and VISION_AWAIT_MS > 0:
+            deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
+            while time.time() < deadline:
+                cached = _vision_get(guild_id)
+                if cached:
+                    image_b64, img_present, img_src = cached, True, "webpush"
+                    break
+                time.sleep(0.05)
 
         
     history_text = build_history_for_guild(guild_id)
@@ -720,6 +720,7 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
+    user_message = ""  # unngå UnboundLocalError
     default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
     channel_id = request.form.get("channel_id") or default_channel
     user_name = request.form.get("user_name", "FAEEEEEN")
@@ -733,19 +734,18 @@ def queue_audio():
         img_src = "cache"
     elif img_present:
         _vision_set(guild_id, image_b64)
-    # ... etter _vision_get/_vision_set-blokka
 # Hvis spørsmålet krever syn men vi mangler bilde → be web om å pushe
     if not img_present and _needs_image(user_message):
         _vision_signal(channel_id, guild_id)
     # vent et kort øyeblikk på at web pusher via /vision/update
-    if guild_id and VISION_AWAIT_MS > 0:
-        deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
-        while time.time() < deadline:
-            cached = _vision_get(guild_id)
-            if cached:
-                image_b64, img_present, img_src = cached, True, "webpush"
-                break
-            time.sleep(0.05)
+        if guild_id and VISION_AWAIT_MS > 0:
+            deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
+            while time.time() < deadline:
+                cached = _vision_get(guild_id)
+                if cached:
+                    image_b64, img_present, img_src = cached, True, "webpush"
+                    break
+                time.sleep(0.05)
 
     
     start_total = time.time()
@@ -1363,6 +1363,6 @@ def eval_models():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5002)
+    app.run(host="0.0.0.0", port=5002, debug=False, use_reloader=False)
 
 
