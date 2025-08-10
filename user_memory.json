@@ -1,0 +1,166 @@
+{
+  "memories": {
+    "169885360233512961": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\nJeg forstår at du er forvirret. Kan du fortelle meg litt mer om hva du mener med \"dette\"?\nHva er dette?\nBeklager, jeg er litt forvirret selv! Du spør hva \"dette\" er.\nHvor er det på bildet?\nBeklager, jeg er litt forvirret selv! Du spør hva \"dette\" er.\nTeksting av Nicolai Winther\nÅh, du mener den teksten Nicolai Winther har lagt til? Ja, den teksten som er over bildet. Nå sier Kenneth: Hva er dette?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Beklager, jeg sliter fortsatt med å forstå hva du spør om! Det er vanskelig å følge med når du spør om \"dette\" så ofte."
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\nBeklager, jeg er litt forvirret selv! Du spør hva \"dette\" er.\nHvor er det på bildet?\nBeklager, jeg er litt forvirret selv! Du spør hva \"dette\" er.\nTeksting av Nicolai Winther\nÅh, du mener den teksten Nicolai Winther har lagt til? Ja, den teksten som er over bildet.\nHva er dette?\nBeklager, jeg sliter fortsatt med å forstå hva du spør om! Det er vanskelig å følge med når du spør om \"dette\" så ofte. Nå sier Kenneth: Hva mener du?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Jeg forstår at du er litt forvirret, Kenneth. Det er helt greit!"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHvor er det på bildet?\nBeklager, jeg er litt forvirret selv! Du spør hva \"dette\" er.\nTeksting av Nicolai Winther\nÅh, du mener den teksten Nicolai Winther har lagt til? Ja, den teksten som er over bildet.\nHva er dette?\nBeklager, jeg sliter fortsatt med å forstå hva du spør om! Det er vanskelig å følge med når du spør om \"dette\" så ofte.\nHva mener du?\nJeg forstår at du er litt forvirret, Kenneth. Det er helt greit! Nå sier Kenneth: Hva ser du på skjermen?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Jeg ser på skjermen, men det er vanskelig å si hva jeg ser! Jeg sliter fortsatt med å forstå hva du spør om."
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nTeksting av Nicolai Winther\nÅh, du mener den teksten Nicolai Winther har lagt til? Ja, den teksten som er over bildet.\nHva er dette?\nBeklager, jeg sliter fortsatt med å forstå hva du spør om! Det er vanskelig å følge med når du spør om \"dette\" så ofte.\nHva mener du?\nJeg forstår at du er litt forvirret, Kenneth. Det er helt greit!\nHva ser du på skjermen?\nJeg ser på skjermen, men det er vanskelig å si hva jeg ser! Jeg sliter fortsatt med å forstå hva du spør om. Nå sier Kenneth: Teksting av Nicolai Winther\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Jeg skjønner det, Kenneth. Det er helt greit at du sliter."
+      }
+    ],
+    "347438146323218433": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHvem tror du vinner?\nHvem mener du? Det er mange som kan vinne, avhengig av hva vi snakker om.\nArne, hvordan ser du på Salmon?\nSalmon? Jeg mener at Arne har en god sjanse. Nå sier Eskil: Nå er det søndag!\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Ja, det er jo en god sjanse for Arne. Søndag, sier du? Da må vi kanskje ta en pause fra å spekulere."
+      }
+    ],
+    "193082589186097153": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHvem tror du vinner?\nHvem mener du? Det er mange som kan vinne, avhengig av hva vi snakker om.\nArne, hvordan ser du på Salmon?\nSalmon? Jeg mener at Arne har en god sjanse.\nNå er det søndag!\nJa, det er jo en god sjanse for Arne. Søndag, sier du? Da må vi kanskje ta en pause fra å spekulere. Nå sier Vetle: Takk skal du ha.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Ok, takk! Hva skal vi gjøre i dag da?"
+      }
+    ],
+    "563169095961542676": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\nUsikker, Kenneth. Hva akkurat mener du?\nNorsk samtale.\nÅh, bare sjekket at vi snakker norsk! 😄\nTeksting av Nicolai Winther\n? Hva mener du med det? Nå sier Gizmofrog: Nei, siden du måtte...\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Jeg bare lurte på hva som foregikk. Det var litt forvirrende!"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\n\"Jeg aner ikke! Jeg sa jo at noe var *annerledes igjen*, og nå er det bare...\nHva ser du på skjermen?\n\"Jeg ser bare en tom kanal, Kenneth! Du sa det var *annerledes igjen* – hva har skjedd?\nNorsk samtale.\nJeg prøver å forstå hva som skjer! Du sier at du ser en tom kanal, og jeg sa \"annerledes igjen\". Nå sier Gizmofrog: Jeg spiller litt av meg.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Usikker på hva som skjer, men det høres ut som noe har skjedd med en kanal. Hva slags kanal er det?"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nKan du se på bildet?\nJeg prøver å se, men det er bare en tom kanal. Jeg kan ikke se noe bilde.\nHva er dette?\nJeg ser! Det er et bilde av en kanal som er tømt.\nNei, hva er det?\nDet ser ut som en kanal er tom! Det er litt rart, ikke sant?\nHva er dette?\nDet er et bilde av en kanal som er tømt! Det er litt rart, ikke sant? Nå sier Gizmofrog: We in it to win it, fam.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Det er litt rart, ikke sant? Som Gizmofrog sa, \"We in it to win it, fam.\" Det er jo bare en tom kanal, men det er jo litt merkelig at det er et bilde av det."
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nNå sier Gizmofrog: Øh, what the fe?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Beklager, jeg forstår ikke helt. Hva er det som skjer?"
+      }
+    ],
+    "454062562930196485": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nNå sier KS: Hallo? Hallo?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Hei KS! Hva er det som skjer?"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHallo? Hallo?\nHei KS! Hva er det som skjer?\nHan er på veien.\nOk, han er på vei? Hvor skal han? Nå sier KS: Ja, det er det også.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Hvor skal han?"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHallo? Hallo?\nHei KS! Hva er det som skjer?\nHan er på veien.\nOk, han er på vei? Hvor skal han?\nJa, det er det også.\nHvor skal han? Nå sier KS: Annerledes igjen.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Annerledes igjen? Hva mener du med det?"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHallo? Hallo?\nHei KS! Hva er det som skjer?\nHan er på veien.\nOk, han er på vei? Hvor skal han?\nJa, det er det også.\nHvor skal han?\nAnnerledes igjen.\nAnnerledes igjen? Hva mener du med det? Nå sier KS: Anne, er du forberedt?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Beklager, jeg er litt usikker på hva du mener med \"annerledes igjen\". Jeg forstår ikke helt hvor han er på vei, eller hva som skjer."
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHan er på veien.\nOk, han er på vei? Hvor skal han?\nJa, det er det også.\nHvor skal han?\nAnnerledes igjen.\nAnnerledes igjen? Hva mener du med det?\nAnne, er du forberedt?\nBeklager, jeg er litt usikker på hva du mener med \"annerledes igjen\". Jeg forstår ikke helt hvor han er på vei, eller hva som skjer. Nå sier KS: Hallo, hallo, hallo.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "\"Beklager, jeg forstår ikke helt hva du mener med 'annerledes igjen'. Det høres ut som han har endret rute eller kanskje..."
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nJa, det er det også.\nHvor skal han?\nAnnerledes igjen.\nAnnerledes igjen? Hva mener du med det?\nAnne, er du forberedt?\nBeklager, jeg er litt usikker på hva du mener med \"annerledes igjen\". Jeg forstår ikke helt hvor han er på vei, eller hva som skjer.\nHallo, hallo, hallo.\n\"Beklager, jeg forstår ikke helt hva du mener med 'annerledes igjen'. Det høres ut som han har endret rute eller kanskje... Nå sier KS: Ok, jeg tror jeg vet noe dette importerer.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Ok, jeg skjønner! Du mener at han har tatt en uvanlig omvei, eller kanskje endret plan?"
+      }
+    ],
+    "760856512867991611": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHallo? Hallo?\nHei KS! Hva er det som skjer? Nå sier GAF: Han er på veien.\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Ok, han er på vei? Hvor skal han?"
+      }
+    ],
+    "173856592502980608": [
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nAnne, er du forberedt?\nBeklager, jeg er litt usikker på hva du mener med \"annerledes igjen\". Jeg forstår ikke helt hvor han er på vei, eller hva som skjer.\nHallo, hallo, hallo.\n\"Beklager, jeg forstår ikke helt hva du mener med 'annerledes igjen'. Det høres ut som han har endret rute eller kanskje...\nOk, jeg tror jeg vet noe dette importerer.\nOk, jeg skjønner! Du mener at han har tatt en uvanlig omvei, eller kanskje endret plan?\nHei, god morgen, ordene.\nGod morgen! Ja, det er det jeg mener. Nå sier sander0767: Hvor er jeg?\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Jeg er litt usikker på hvor du er akkurat nå! Jeg har ikke sett deg på et stykke."
+      }
+    ]
+  },
+  "summaries": {
+    "169885360233512961": "Her er en punktliste som oppsummerer brukerens preferanser og viktige detaljer fra samtalen:\n\n*   **Bruker er forvirret:** Bruker viser tydelig forvirring knyttet til begrepet \"norsk samtale\" og hva \"dette\" refererer til.\n*   **Fokus på bildet:** Bruker er opptatt av å vite hva som vises i et bilde (muligens i forbindelse med Nicolai Winthers teksting).\n*   **Referanse til Nicolai Winther:** Samtalen er knyttet til og refererer til teksting utført av Nicolai Winther.\n*   **Spørsmål om innhold:** Bruker søker etter å identifisere innholdet i et bilde.",
+    "563169095961542676": "Her er en oppsummering av brukerens preferanser og viktige detaljer:\n\n*   **Forvirring:** Brukeren er konstant forvirret og trenger ofte bekreftelse på hva som skjer.\n*   **Bekreftelse:** Brukeren trenger bekreftelse på at de er i en norsk samtale.\n*   **Fokus på manglende informasjon:** Brukeren er opptatt av å forstå hva som skjer og hva de ser, spesielt når det gjelder en tom kanal.\n*   **Forespørsel om klargjøring:** Brukeren stiller ofte spørsmål for å få bekreftelse og forklaring på hva som foregår.\n*   **Discord-server:** Samtalen foregår i en Discord-server."
+  }
+}

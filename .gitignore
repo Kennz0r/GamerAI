@@ -1,0 +1,10 @@
+# .gitignore
+.venv/
+.venv*/
+venv/
+env/
+__pycache__/
+*.pyc
+.env
+ffmpeg/
+assets/
