@@ -13,7 +13,7 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "0"))
-WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5002")
+WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://127.0.0.1:5002")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -37,11 +37,18 @@ else:
     os.environ["PATH"] = os.path.dirname(FFMPEG_EXECUTABLE) + os.pathsep + os.environ.get("PATH", "")
 
 # ÉN global session = gjenbruk av TCP-forbindelser (keep-alive)
-WEB = requests.Session()
-WEB.mount("http://", HTTPAdapter(pool_connections=2, pool_maxsize=2, pool_block=True,
-                                 max_retries=Retry(total=1, backoff_factor=0.2)))
-WEB.mount("https://", HTTPAdapter(pool_connections=2, pool_maxsize=2, pool_block=True,
-                                  max_retries=Retry(total=1, backoff_factor=0.2)))
+def _mk_session():
+    s = requests.Session()
+    # pool_maxsize=1 ensures each long-poller keeps one reusable socket only
+    s.mount("http://",  HTTPAdapter(pool_connections=1, pool_maxsize=1, pool_block=True,
+                                    max_retries=Retry(total=1, backoff_factor=0.2)))
+    s.mount("https://", HTTPAdapter(pool_connections=1, pool_maxsize=1, pool_block=True,
+                                    max_retries=Retry(total=1, backoff_factor=0.2)))
+    return s
+
+WEB_POST  = _mk_session()  # queue + queue_audio
+WEB_TTS   = _mk_session()  # /tts_audio long-poll
+WEB_VOICE = _mk_session()  # /voice long-poll
 
 # start pollere kun én gang
 pollers_started = False
@@ -69,7 +76,7 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str,
                 "user_id": str(user_id) if user_id else None,
                 "guild_id": guild_id,
             }
-            WEB.post(f"{WEB_SERVER_URL}/queue", json=payload, timeout=8)
+            WEB_POST.post(f"{WEB_SERVER_URL}/queue", json=payload, timeout=8)
         except Exception as e:
             print(f"[send_to_web] {e}")
     await asyncio.to_thread(_post)
@@ -84,7 +91,7 @@ async def send_audio(data: bytes, user_name: str, user_id: int | None = None, gu
                 "user_id": str(user_id or ""),
                 "guild_id": guild_id or "",
             }
-            WEB.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=30)
+            WEB_POST.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=30)
         except Exception as e:
             print(f"[send_audio] {e}")
     await asyncio.to_thread(_post)
@@ -103,6 +110,8 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
                     or getattr(member, "name", None)
                     or str(user_id))
         guild_id = str(vc.guild.id) if vc.guild else None
+        buf = audio.file.getvalue()
+        print(f"[bot] sending chunk: bytes={len(buf)} user={name}")
         await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id)
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
@@ -136,11 +145,10 @@ async def poll_tts():
     if not HAS_FFMPEG:
         print("[poll_tts] ffmpeg mangler; hopper over avspilling.")
         return
-    url = f"{WEB_SERVER_URL}/tts_audio?wait_ms=5000"  # øk fra 1500
     while True:
         try:
             def _get():
-                with WEB.get(url, timeout=15) as r:
+                with WEB_TTS.get(f"{WEB_SERVER_URL}/tts_audio?wait_ms=5000", timeout=15) as r:
                     return r.content if r.status_code == 200 else None
             data = await asyncio.to_thread(_get)
             if data:
@@ -160,12 +168,11 @@ async def poll_tts():
 
 async def poll_voice():
     """Long-poller for voice-kommandoer (join/leave) fra web_interface."""
-    url = f"{WEB_SERVER_URL}/voice?wait_ms=5000"  # lengre wait -> færre kall
     while True:
         try:
             def _get():
                 # 'with' sikrer at socket og respons lukkes
-                with WEB.get(url, timeout=15) as r:
+                with WEB_VOICE.get(f"{WEB_SERVER_URL}/voice?wait_ms=5000", timeout=15) as r:
                     if r.status_code == 200:
                         return r.json() or {}
                     return {}

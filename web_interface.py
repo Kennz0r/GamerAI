@@ -26,6 +26,8 @@ import time
 from pydub import AudioSegment
 from difflib import SequenceMatcher
 from collections import deque, OrderedDict
+import uuid, threading
+from collections import defaultdict
 
 load_dotenv()
 
@@ -106,6 +108,12 @@ HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
 # --- STT post-processing helpers ---
 _STT_RECENT = {}  # channel_id -> deque[(timestamp, normalized_text)]
 # Visual intent patterns (used only when NO image is attached)
+
+# én lås per bruker (hindrer race i LAST_TAIL/merging)
+USER_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
+
+# dir for midlertidige lydfiler
+os.makedirs("tmp_audio", exist_ok=True)
 
 # 1) Øverst i filen (sammen med andre globale variabler)
 VISION_CACHE = {}  # guild_id -> {"b64": str, "ts": float}
@@ -720,93 +728,85 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
-    user_message = ""  # unngå UnboundLocalError
+    user_message = ""
     default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
     channel_id = request.form.get("channel_id") or default_channel
-    user_name = request.form.get("user_name", "FAEEEEEN")
-    user_id = (request.form.get("user_id") or "").strip() or None
-    guild_id   = (request.form.get("guild_id") or "").strip() or None
+    user_name = request.form.get("user_name", "Voice")
+    user_id   = (request.form.get("user_id") or "").strip() or None
+    guild_id  = (request.form.get("guild_id") or "").strip() or None
     audio_file = request.files.get("file")
-    image_b64, img_present, img_src = _extract_image_from_request(request)
-    if not img_present and (cached := _vision_get(guild_id)):
-        image_b64 = cached
-        img_present = True
-        img_src = "cache"
-    elif img_present:
-        _vision_set(guild_id, image_b64)
-# Hvis spørsmålet krever syn men vi mangler bilde → be web om å pushe
-    if not img_present and _needs_image(user_message):
-        _vision_signal(channel_id, guild_id)
-    # vent et kort øyeblikk på at web pusher via /vision/update
-        if guild_id and VISION_AWAIT_MS > 0:
-            deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
-            while time.time() < deadline:
-                cached = _vision_get(guild_id)
-                if cached:
-                    image_b64, img_present, img_src = cached, True, "webpush"
-                    break
-                time.sleep(0.05)
 
-    
-    start_total = time.time()
     if not audio_file:
         return {"error": "no file"}, 400
-
     if not speech_recognition_enabled:
         return {"status": "ignored"}
 
-    filename = audio_file.filename or "temp_audio"
-    ext = os.path.splitext(filename)[1]
-    path = f"temp_audio{ext}"
-    audio_file.save(path)
+    # --- unike stier pr request ---
+    uid = uuid.uuid4().hex
+    ext = os.path.splitext(audio_file.filename or "chunk.wav")[1] or ".wav"
+    raw_path    = os.path.join("tmp_audio", f"{uid}{ext}")
+    merged_path = os.path.join("tmp_audio", f"{uid}_merged.wav")
 
-    user_message = ""  # avoid UnboundLocalError in finally
+    audio_file.save(raw_path)
 
-    try:
-    # Load and normalize to mono 16 kHz for overlap handling
-        audio_seg = AudioSegment.from_file(path).set_channels(1).set_frame_rate(16000)
-        audio_seg = effects.normalize(audio_seg)  # ← add this line
+    # bilde-cache håndteres som før (men IKKE trigge _needs_image før vi har STT-tekst)
+    image_b64, img_present, img_src = _extract_image_from_request(request)
+    if not img_present and (cached := _vision_get(guild_id)):
+        image_b64, img_present, img_src = cached, True, "cache"
+    elif img_present:
+        _vision_set(guild_id, image_b64)
 
-    # Prepend last tail for this user to avoid mid-word cuts
-        if user_id:
-            prev_tail = LAST_TAIL.get(user_id)
-            if prev_tail:
-                audio_seg = prev_tail + audio_seg
-        # Store new tail from the end of this chunk
-            LAST_TAIL[user_id] = audio_seg[-TAIL_MS:] if len(audio_seg) > TAIL_MS else audio_seg
-
-    # Export to a real WAV path (don’t mix headers/extensions)
-        wav_path = os.path.splitext(path)[0] + "_merged.wav"
-        audio_seg.export(wav_path, format="wav")
-
-        start = time.time()
-        user_message = transcribe_audio(wav_path)
-        last_process_times["speech_ms"] = int((time.time() - start) * 1000)
-        user_message = squash_stt(user_message)
-
-        if stt_should_drop(channel_id, user_message, min_chars=6, window_sec=10):
-            print(f"[STT] Suppressed short/duplicate: {user_message!r}")
-            return {"status": "ignored"}
-    
-        
-
-    except ValueError as err:
-        return {"error": str(err)}, 400
-
-    finally:
-    # Clean up both temp files if present
+    start_total = time.time()
+    lock_key = user_id or "global"
+    with USER_LOCKS[lock_key]:
         try:
-            os.remove(path)
-        except Exception:
-            pass
-        try:
-            if 'wav_path' in locals() and os.path.exists(wav_path):
-                os.remove(wav_path)
-        except Exception:
-            pass
+            # last + normaliser
+            audio_seg = AudioSegment.from_file(raw_path).set_channels(1).set_frame_rate(16000)
+            audio_seg = effects.normalize(audio_seg)
 
-        if not user_message.strip():
-            return {"status": "ignored"}
+            # tail-merge (beskyttert av lock)
+            if user_id:
+                prev_tail = LAST_TAIL.get(user_id)
+                if prev_tail:
+                    audio_seg = prev_tail + audio_seg
+                LAST_TAIL[user_id] = audio_seg[-TAIL_MS:] if len(audio_seg) > TAIL_MS else audio_seg
+
+            # skriv MERGED
+            audio_seg.export(merged_path, format="wav")
+            print(f"[srv] chunk uid={uid} dur_ms={len(audio_seg)} dBFS={getattr(audio_seg,'dBFS','NA')}")
+
+            # STT på MERGED (din transcribe_audio lager ev. _dn-filer selv)
+            start = time.time()
+            user_message = transcribe_audio(merged_path)
+            last_process_times["speech_ms"] = int((time.time() - start) * 1000)
+            user_message = squash_stt(user_message)
+
+            if stt_should_drop(channel_id, user_message, min_chars=6, window_sec=10):
+                print(f"[STT] Suppressed: {user_message!r}")
+                return {"status": "ignored"}
+
+            # Nå har vi tekst → evt. be web om skjermbilde
+            if not img_present and _needs_image(user_message):
+                _vision_signal(channel_id, guild_id)
+                if guild_id and VISION_AWAIT_MS > 0:
+                    deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
+                    while time.time() < deadline:
+                        cached = _vision_get(guild_id)
+                        if cached:
+                            image_b64, img_present, img_src = cached, True, "webpush"
+                            break
+                        time.sleep(0.05)
+
+        except ValueError as err:
+            return {"error": str(err)}, 400
+        finally:
+            # rydd unike filer
+            for p in (raw_path, merged_path):
+                try: os.path.exists(p) and os.remove(p)
+                except: pass
+
+            if not user_message.strip():
+                return {"status": "ignored"}
 
 
     history_text = build_history_for_guild(guild_id)
