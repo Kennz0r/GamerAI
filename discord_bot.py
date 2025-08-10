@@ -38,9 +38,9 @@ else:
 
 # ÉN global session = gjenbruk av TCP-forbindelser (keep-alive)
 WEB = requests.Session()
-WEB.mount("http://", HTTPAdapter(pool_connections=10, pool_maxsize=20,
+WEB.mount("http://", HTTPAdapter(pool_connections=2, pool_maxsize=2, pool_block=True,
                                  max_retries=Retry(total=1, backoff_factor=0.2)))
-WEB.mount("https://", HTTPAdapter(pool_connections=10, pool_maxsize=20,
+WEB.mount("https://", HTTPAdapter(pool_connections=2, pool_maxsize=2, pool_block=True,
                                   max_retries=Retry(total=1, backoff_factor=0.2)))
 
 # start pollere kun én gang
@@ -132,68 +132,86 @@ async def voice_listener(vc: discord.VoiceClient) -> None:
             await asyncio.sleep(0.5)
 
 # ---------- Long-pollers ----------
-
 async def poll_tts():
-    """Long-poller for TTS-klipp fra web_interface."""
     if not HAS_FFMPEG:
         print("[poll_tts] ffmpeg mangler; hopper over avspilling.")
         return
-    url = f"{WEB_SERVER_URL}/tts_audio?wait_ms=1500"
+    url = f"{WEB_SERVER_URL}/tts_audio?wait_ms=5000"  # øk fra 1500
     while True:
         try:
-            r = await asyncio.to_thread(WEB.get, url, timeout=10)
-            if r.status_code == 200 and r.content:
-                # Spill av til alle tilkoblede VC som ikke spiller noe akkurat nå
+            def _get():
+                with WEB.get(url, timeout=15) as r:
+                    return r.content if r.status_code == 200 else None
+            data = await asyncio.to_thread(_get)
+            if data:
                 for vc in list(bot.voice_clients):
-                    if not vc.is_connected() or vc.is_playing():
-                        continue
-                    try:
-                        source = discord.FFmpegPCMAudio(io.BytesIO(r.content), pipe=True, executable=FFMPEG_EXECUTABLE)
-                        vc.play(source)
-                    except Exception as e:
-                        print(f"[poll_tts/play] {e}")
+                    if vc.is_connected() and not vc.is_playing():
+                        try:
+                            source = discord.FFmpegPCMAudio(io.BytesIO(data), pipe=True, executable=FFMPEG_EXECUTABLE)
+                            vc.play(source)
+                        except Exception as e:
+                            print(f"[poll_tts/play] {e}")
                 await asyncio.sleep(0.05)
             else:
-                await asyncio.sleep(0.35)  # rolig ved tom kø
+                await asyncio.sleep(0.4)
         except Exception as e:
             print(f"[poll_tts] {e}")
             await asyncio.sleep(1.0)
 
 async def poll_voice():
     """Long-poller for voice-kommandoer (join/leave) fra web_interface."""
-    url = f"{WEB_SERVER_URL}/voice?wait_ms=1500"
+    url = f"{WEB_SERVER_URL}/voice?wait_ms=5000"  # lengre wait -> færre kall
     while True:
         try:
-            r = await asyncio.to_thread(WEB.get, url, timeout=10)
-            if r.status_code == 200:
-                data = r.json() or {}
-                action = data.get("action")
-                channel_id = data.get("channel_id")
-                if action == "join" and channel_id:
-                    channel = None
-                    for guild in bot.guilds:
-                        c = guild.get_channel(int(channel_id))
-                        if isinstance(c, discord.VoiceChannel):
-                            channel = c
-                            break
-                    if channel:
-                        try:
-                            vc = await channel.connect()
-                            bot.loop.create_task(voice_listener(vc))
-                        except Exception as e:
-                            print(f"[poll_voice/join] {e}")
-                    else:
-                        print(f"[poll_voice] Channel {channel_id} not found or not a voice channel.")
-                elif action == "leave":
-                    for vc in list(bot.voice_clients):
-                        try:
-                            await vc.disconnect()
-                        except Exception:
-                            pass
-            await asyncio.sleep(0.2)
+            def _get():
+                # 'with' sikrer at socket og respons lukkes
+                with WEB.get(url, timeout=15) as r:
+                    if r.status_code == 200:
+                        return r.json() or {}
+                    return {}
+            data = await asyncio.to_thread(_get)
+
+            action = data.get("action")
+            channel_id = data.get("channel_id")
+
+            if action == "join" and channel_id:
+                # Finn voice-kanalen
+                target = None
+                for guild in bot.guilds:
+                    c = guild.get_channel(int(channel_id))
+                    if isinstance(c, discord.VoiceChannel):
+                        target = c
+                        break
+                if not target:
+                    print(f"[poll_voice] Channel {channel_id} not found or not a voice channel.")
+                else:
+                    # Gjenbruk eksisterende VC om mulig (unngå ekstra connect)
+                    existing = discord.utils.get(bot.voice_clients, guild=target.guild)
+                    try:
+                        if existing and existing.is_connected():
+                            if existing.channel and existing.channel.id != target.id:
+                                await existing.move_to(target)
+                        else:
+                            vc = await target.connect()
+                            # start én recorder per VC
+                            if not getattr(vc, "_listener_started", False):
+                                bot.loop.create_task(voice_listener(vc))
+                                vc._listener_started = True
+                    except Exception as e:
+                        print(f"[poll_voice/join] {e}")
+
+            elif action == "leave":
+                for vc in list(bot.voice_clients):
+                    try:
+                        await vc.disconnect()
+                    except Exception:
+                        pass
+
+            await asyncio.sleep(0.3)  # alltid en liten pause
         except Exception as e:
             print(f"[poll_voice] {e}")
             await asyncio.sleep(1.0)
+
 
 # ---------- Events ----------
 
