@@ -81,10 +81,10 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str,
             print(f"[send_to_web] {e}")
     await asyncio.to_thread(_post)
 
-async def send_audio(data: bytes, user_name: str, user_id: int | None = None, guild_id: str | None = None) -> None:
+async def send_audio(data, user_name, user_id=None, guild_id=None) -> None:
     def _post():
         try:
-            files = {"file": ("audio.wav", data, "audio/wav")}
+            files = {"file": ("chunk.mp3", data, "audio/mpeg")}
             form = {
                 "channel_id": str(DISCORD_TEXT_CHANNEL),
                 "user_name": user_name,
@@ -98,8 +98,28 @@ async def send_audio(data: bytes, user_name: str, user_id: int | None = None, gu
 
 # ---------- Voice recording ----------
 
-from pydub import AudioSegment  # legg øverst i fila
 
+
+# --- in voice_listener()
+sink = discord.sinks.MP3Sink()  # not WaveSink
+
+# --- send_audio(): content-type + filename reflect MP3
+async def send_audio(data, user_name, user_id=None, guild_id=None) -> None:
+    def _post():
+        try:
+            files = {"file": ("chunk.mp3", data, "audio/mpeg")}
+            form = {
+                "channel_id": str(DISCORD_TEXT_CHANNEL),
+                "user_name": user_name,
+                "user_id": str(user_id or ""),
+                "guild_id": guild_id or "",
+            }
+            WEB_POST.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=30)
+        except Exception as e:
+            print(f"[send_audio] {e}")
+    await asyncio.to_thread(_post)
+
+# --- _recording_complete(): forward MP3 as-is; optional safe transcode fallback
 async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
     for u, audio in getattr(sink, "audio_data", {}).items():
         if isinstance(u, (discord.Member, discord.User)):
@@ -108,30 +128,24 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
         else:
             user_id = int(u)
             member = vc.guild.get_member(user_id) if vc.guild else None
-            name = (getattr(member, "display_name", None)
-                    or getattr(member, "name", None)
-                    or str(user_id))
-
+            name = (getattr(member, "display_name", None) or getattr(member, "name", None) or str(user_id))
         guild_id = str(vc.guild.id) if vc.guild else None
 
-        # 1) hent råbytes fra sink
         raw = audio.file.getvalue()
         print(f"[bot] sending chunk: bytes={len(raw)} user={name}")
 
-        # 2) RE-ENCODE: last som wav → 16 kHz mono → eksporter wav (stabil header)
-        try:
-            seg = AudioSegment.from_file(io.BytesIO(raw), format="wav")
-        except Exception as e:
-            print(f"[bot] from_file(wav) failed: {e}; trying generic loader")
-            seg = AudioSegment.from_file(io.BytesIO(raw))  # ffmpeg gjetter
+        # If you still see dur_ms=0 on the server, uncomment fallback below:
+        # try:
+        #     # decode MP3 → 16k mono → re-encode MP3 (writes clean headers)
+        #     seg = AudioSegment.from_file(io.BytesIO(raw), format="mp3")
+        #     seg = seg.set_channels(1).set_frame_rate(16000)
+        #     out = io.BytesIO(); seg.export(out, format="mp3", bitrate="96k")
+        #     raw = out.getvalue()
+        # except Exception as e:
+        #     print(f"[bot] mp3 re-encode fallback failed: {e}")
 
-        seg = seg.set_channels(1).set_frame_rate(16000)
+        await send_audio(raw, name, user_id=user_id, guild_id=guild_id)
 
-        out = io.BytesIO()
-        seg.export(out, format="wav")  # viktig: WAV, ikke mp3
-        fixed = out.getvalue()
-
-        await send_audio(fixed, name, user_id=user_id, guild_id=guild_id)
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
