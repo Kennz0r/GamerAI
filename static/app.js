@@ -327,6 +327,8 @@ function App() {
     }
   };
 
+  
+
   const sendPendingToDiscord = async e => {
     e.preventDefault();
     if (!discordEnabled) return;
@@ -829,7 +831,7 @@ React.useEffect(() => () => stopScreenSource(), []);
         </form>
         <form method="post" action="voice">
           <input type="hidden" name="action" value="join" />
-          <input type="hidden" name="channel_id" value="172828844213010433" />
+          <input type="hidden" name="channel_id" value="1402626902694432798" />
           <button type="submit">Join Bot Channel</button>
         </form>
         <form method="post" action="voice">

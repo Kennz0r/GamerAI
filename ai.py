@@ -37,6 +37,78 @@ OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999"))          # push layers 
 OLLAMA_NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "0"))      # 0 = auto; else set CPU threads
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.7"))
 OLLAMA_REPEAT_PENALTY = float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05"))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+OLLAMA_NUM_PREDICT_MAX = int(os.getenv("OLLAMA_NUM_PREDICT_MAX", "384"))
+
+# --- Vision capability + triggers ---
+MODEL_SUPPORTS_IMAGES = os.getenv("MODEL_SUPPORTS_IMAGES", "auto")  # auto|true|false
+
+# --- Await-image state with timeout ---
+AWAIT_IMAGE_UNTIL: dict[str, float] = {}
+
+def _await_key(user_id: str | None, guild_id: str | None) -> str:
+    return f"{guild_id or 'g'}:{user_id or 'u'}"
+
+def _set_await_image(key: str, seconds: int = 45) -> None:
+    import time
+    AWAIT_IMAGE_UNTIL[key] = time.time() + seconds
+
+def _awaiting_image(key: str) -> bool:
+    import time
+    return AWAIT_IMAGE_UNTIL.get(key, 0) > time.time()
+
+def _clear_await_image(key: str) -> None:
+    AWAIT_IMAGE_UNTIL.pop(key, None)
+
+def _vision_guard_text(repeats: int) -> str:
+    if repeats <= 1:
+        return "Jeg ser ikke noe bilde i meldingen din. Last opp et bilde, eller beskriv motivet kort (f.eks. «Minecraft-kiste»)."
+    return "Fortsatt ikke noe bilde. Vil du fortsette uten bilde? Beskriv motivet med 2–5 ord, så hjelper jeg."
+
+def _model_is_vlm(model_name: str) -> bool:
+    """
+    Heuristic: treat models with 'vl', 'vision', 'clip', 'llava', 'minicpm' in the name as VLMs.
+    Or let ENV force it.
+    """
+    flag = MODEL_SUPPORTS_IMAGES.lower()
+    if flag in ("true", "1", "yes"): 
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    m = model_name.lower()
+    return any(tag in m for tag in ("vl", "vision", "llava", "minicpm", "qwen2.5-vl", "qwen-vl"))
+
+_VISUAL_TRIGGERS = (
+    "hva er dette", "hva ser du", "hva ser du her", "hva er det", 
+    "what is this", "what do you see", "what do you see here"
+)
+
+import re
+def _needs_visual_answer(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    return any(trig in t for trig in _VISUAL_TRIGGERS)
+
+def _recent_textual_description(history: list[dict], current_text: str) -> str | None:
+    """Finn en nylig brukerbeskrivelse (ikke spørsmål) å jobbe videre med."""
+    def is_desc(t: str) -> bool:
+        t = (t or "").strip()
+        if not t: 
+            return False
+        if t.endswith("?"):
+            return False
+        return len(t) >= 8  # litt lengde ≈ reell beskrivelse, ikke bare "se"
+    # 1) gjeldende melding
+    if is_desc(current_text):
+        return current_text.strip()
+    # 2) se bakover i historikken etter forrige bruker-ytring som ikke er et spørsmål
+    for msg in reversed(history or []):
+        if msg.get("role") == "user":
+            t = (msg.get("content") or "")
+            if is_desc(t):
+                return t.strip()
+    return None
+
+
 
 _STT_BLACKLIST = os.getenv(
     "WHISPER_SUPPRESS_PHRASES",
@@ -256,6 +328,18 @@ def build_system_prompt(user_id: str | None, guild_id: str | None) -> list[dict]
     p = PERSONA or {}
     s = p.get("style", {})
     mood = _recent_user_mood(user_id)
+
+    # Vision + uncertainty discipline
+    vision_rules = (
+        "Hvis det er vedlagt et bilde: beskriv bare det du faktisk ser. "
+        "Hvis du er usikker, si 'usikker'. "
+        "Hvis det ikke er noe bilde, ikke lat som du ser et."
+    )
+    uncertainty_rules = (
+        "Hvis du ikke vet, si det. Ikke finn på detaljer. "
+        "Bruk 'kan være' eller 'usikker' heller enn bastante påstander."
+    )
+
     core = f"""
 Du er {p.get('name','Arne Borheim')}.
 - Personlighet: {p.get('bio','Tørrvittig norsk gamer som liker teknologi, litt frekk men vennlig.')} (mood: {mood})
@@ -268,11 +352,20 @@ Du er {p.get('name','Arne Borheim')}.
 - Sikkerhet: aldri {', '.join(p.get('safety',{}).get('never_do', [])) or '' }.
 - Svar på naturlig norsk, korte setninger. Ikke skriv "AI:" eller scenebeskrivelser.
 """.strip()
-    msgs = [{"role": "system", "content": core}]
-    msgs.append({"role":"system","content":
-    "Bruk bare relevant kontekst. Ikke trekk inn gamle detaljer/minner "
-    "med mindre brukeren ber om det eksplisitt eller det er nødvendig for forståelsen."
-})
+
+    memory_rules = (
+        "Bruk bare relevant kontekst. Ikke trekk inn gamle detaljer/minner "
+        "med mindre brukeren ber om det eksplisitt eller det er nødvendig for forståelsen."
+    )
+
+    msgs = [
+        {"role": "system", "content": core},
+        {"role": "system", "content": vision_rules},
+        {"role": "system", "content": uncertainty_rules},
+        {"role": "system", "content": memory_rules},
+    ]
+
+
 
     if guild_id:
         blurb = guild_context_blurb(guild_id)
@@ -375,6 +468,16 @@ def _should_attach_memory(user_msg: str | None, user_id: str | None) -> bool:
 
     return False
 
+
+def _dynamic_num_predict(user_msg: str, base: int, vmax: int) -> int:
+    n = len(user_msg or "")
+    if n <= 60:
+        return min(160, base)
+    if n <= 200:
+        return base
+    return min(max(base, int(base * 1.5)), vmax)
+
+
 def get_ai_response(
     user_msg: str,
     user_id: str | None = None,
@@ -395,6 +498,7 @@ def get_ai_response(
     messages = build_system_prompt(user_id, guild_id)
 
     # Inject server-wide roster summary
+    history: list[dict] = []
     if guild_id:
         blurb = guild_context_blurb(guild_id)
         if blurb:
@@ -419,21 +523,48 @@ def get_ai_response(
         # defensively trim history to reduce prompt size
         history = USER_MEMORIES.get(user_id, [])[-(MEMORY_MAX_TURNS * 2):]
         messages.extend(history)
+    
+    
     user_msg = _clean_names_and_labels_in(user_msg)
-    if image:
-    # ✅ Correct format for Ollama multimodal
-        messages.append({
-            "role": "user",
-            "content": user_msg,   # must be a string
-            "images": [image],     # base64 (no data: prefix), already prepared upstream
-        })
-    else:
-        messages.append({"role": "user", "content": user_msg})
+
+    # keep your existing history above; we use it here
+    has_image = bool(image)
+    key = _await_key(user_id, guild_id)
+
+    # Do we have a recent textual description we can use instead of insisting on an image?
+    recent_desc = _recent_textual_description(history, user_msg)
+
+    # Visual question, no image, no textual description → ask once, then pivot to text
+    if _needs_visual_answer(user_msg) and not has_image and not recent_desc:
+        if not _awaiting_image(key):
+            _set_await_image(key, 45)
+            return _vision_guard_text(1), None
+        else:
+            return _vision_guard_text(2), None
+
+    # --- Build the final user message (attach image if present) ---
+    img_b64 = None
+    if has_image:
+        img_b64 = image.split(",", 1)[1] if ("," in image) else image
+
+    # If user keeps asking visually but we only have a text description, surface it for grounding
+    if recent_desc and _needs_visual_answer(user_msg) and not has_image:
+        messages.append({"role": "system", "content": f"(Bruker beskriver uten bilde): {recent_desc}"})
+
+    user_payload = {"role": "user", "content": (user_msg or "Hva er dette?")}
+    if img_b64:
+        user_payload["images"] = [img_b64]
+        _clear_await_image(key)
+    messages.append(user_payload)
+
+
+    
 
     # ---- Fast options for Ollama ----
+    dyn_num_predict = _dynamic_num_predict(user_msg, OLLAMA_NUM_PREDICT, OLLAMA_NUM_PREDICT_MAX)
     opts = {
         "num_ctx": OLLAMA_NUM_CTX,
-        "num_predict": OLLAMA_NUM_PREDICT,
+        "num_predict": dyn_num_predict,
         "temperature": OLLAMA_TEMPERATURE,
         "repeat_penalty": OLLAMA_REPEAT_PENALTY,
         "num_gpu": OLLAMA_NUM_GPU,
@@ -441,55 +572,87 @@ def get_ai_response(
     if OLLAMA_NUM_THREAD > 0:
         opts["num_thread"] = OLLAMA_NUM_THREAD
 
+    # helper to strip images if model rejects them
+    def _strip_images(msgs):
+        out = []
+        for m in msgs:
+            if m.get("role") == "user" and "images" in m:
+                m = {k: v for k, v in m.items() if k != "images"}
+            out.append(m)
+        return out
+
+    # First attempt: with image (if any)
     try:
-        response = ollama_client.chat(model=model, messages=messages, options=opts)
-        reply_raw = response["message"]["content"]
-
-        # Clean up
-        thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
-        for thought in thoughts:
-            logger.info("Arne Borheim [think]: %s", thought.strip())
-
-        action = None
-        m = ACTION_RE.search(reply_raw)
-        if m:
-            try:
-                payload = json.loads(m.group(1))
-                action = (payload.get("type") or "").strip().lower() or None
-            except Exception:
-                action = None
-
-        reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL)
-        reply = re.sub(ACTION_RE, "", reply).strip()
-        for phrase in BANNED_PHRASES:
-            reply = reply.replace(phrase, "")
-            
-        reply = _clean_style(reply)                 # strips labels/stage directions
-        reply = _clean_names_and_labels_in(reply)   # applies name mapping etc.
-        reply = re.sub(r"\s{2,}", " ", reply).strip()
-        reply = _style_polish(reply)
-
-        # Update per-user rolling memory + summaries
-        if user_id:
-            hist = USER_MEMORIES.get(user_id, [])
-            hist = hist + [
-                {"role": "user", "content": user_msg},
-                {"role": "assistant", "content": reply},
-            ]
-            USER_MEMORIES[user_id] = hist[-(MAX_TURNS * 2):]
-            _save_memories()
-            if len(hist) - LAST_SUMMARY_LEN.get(user_id, 0) >= (MAX_TURNS * 2):
-                threading.Thread(target=_summarize_history, args=(user_id,), daemon=True).start()
-
-        logger.info("Arne Borheim (action=%s): %s", action, reply)
-        return reply, action
-
+        response = ollama_client.chat(
+            model=model,
+            messages=messages,
+            options=opts,
+            keep_alive=OLLAMA_KEEP_ALIVE,
+        )
     except Exception as e:
-        logger.error("Ollama error: %s", e)
-        return f"[Feil ved tilkobling til Ollama: {e}]", None
+        err = str(e).lower()
+        images_in_payload = any(("images" in m) for m in messages)
+        # If the server/model complains about images/vision, retry once without images
+        if images_in_payload and any(tok in err for tok in ("image", "images", "multi", "vision", "unsupported")):
+            logger.info("Retrying without image due to model error: %s", e)
+            messages = _strip_images(messages)
+            response = ollama_client.chat(
+                model=model,
+                messages=messages,
+                options=opts,
+                keep_alive=OLLAMA_KEEP_ALIVE,
+            )
+        else:
+            logger.error("Ollama error: %s", e)
+            return f"[Feil ved tilkobling til Ollama: {e}]", None
 
+    # -------- post-processing (runs for both first try and retry) --------
+    reply_raw = (response.get("message") or {}).get("content", "")
 
+    # Clean up
+    thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
+    for thought in thoughts:
+        logger.info("Arne Borheim [think]: %s", thought.strip())
 
+    action = None
+    m = ACTION_RE.search(reply_raw)
+    if m:
+        try:
+            payload = json.loads(m.group(1))
+            action = (payload.get("type") or "").strip().lower() or None
+        except Exception:
+            action = None
+
+    reply = re.sub(r"<think>.*?</think>", "", reply_raw, flags=re.DOTALL)
+    reply = re.sub(ACTION_RE, "", reply).strip()
+    for phrase in BANNED_PHRASES:
+        reply = reply.replace(phrase, "")
+
+    reply = _clean_style(reply)
+    reply = _clean_names_and_labels_in(reply)
+    reply = re.sub(r"\s{2,}", " ", reply).strip()
+    reply = _style_polish(reply)
+
+    # honest guard if we were waiting for an image
+    if _awaiting_image(key) and not has_image and _needs_visual_answer(user_msg):
+        reply = _vision_guard_text(2)
+    else:
+        _clear_await_image(key)  # vi kom videre via bilde eller beskrivelse
+
+    # Update per-user rolling memory + summaries
+    if user_id:
+        hist = USER_MEMORIES.get(user_id, [])
+        hist = hist + [
+            {"role": "user", "content": user_msg},
+            {"role": "assistant", "content": reply},
+        ]
+        USER_MEMORIES[user_id] = hist[-(MEMORY_MAX_TURNS * 2):]
+        _save_memories()
+        if len(hist) - LAST_SUMMARY_LEN.get(user_id, 0) >= (MEMORY_MAX_TURNS * 2):
+            threading.Thread(target=_summarize_history, args=(user_id,), daemon=True).start()
+
+    logger.info("Arne Borheim (action=%s): %s", action, reply)
+    return reply, action
 
 
 
@@ -502,14 +665,6 @@ def _style_polish(reply: str) -> str:
         if conc >= 0.85:
             parts = re.split(r'(?<=[.!?])\s+', reply)
             reply = " ".join(parts[:2])
-    # swearing softener
-    if PERSONA.get("safety",{}).get("soften_swears", True):
-        swaps = {
-            r"\bfaen\b": "fanken" if float(s.get("swearing",0.2)) < 0.4 else "faen",
-            r"\bhelvete\b": "pokker" if float(s.get("swearing",0.2)) < 0.4 else "helvete",
-        }
-        for k,v in swaps.items():
-            reply = re.sub(k, v, reply, flags=re.I)
     # emoji
     if float(s.get("emoji",0.1)) >= 0.2:
         if not reply.endswith((")", "!", ".")) and len(reply) < 160:

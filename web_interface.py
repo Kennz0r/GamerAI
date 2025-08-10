@@ -1,4 +1,4 @@
-import os
+import os, base64
 import io
 import subprocess
 import sys
@@ -25,7 +25,7 @@ import wave
 import time
 from pydub import AudioSegment
 from difflib import SequenceMatcher
-from collections import deque
+from collections import deque, OrderedDict
 
 load_dotenv()
 
@@ -43,8 +43,15 @@ if hasattr(torch, "load"):
     torch.load = _load
     print("[TTS] Patched torch.load to weights_only=False")
 
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0))
+try:
+    avail = torch.cuda.is_available()
+    print(f"[CUDA] available={avail}")
+    if avail:
+        print(f"[CUDA] device={torch.cuda.get_device_name(0)}")
+    else:
+        print("[CUDA] GPU not available; using CPU.")
+except Exception as e:
+    print(f"[CUDA] query failed: {e}")
 
 DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -68,18 +75,7 @@ TTS_POSTPROCESS = os.getenv("TTS_POSTPROCESS", "true").lower() == "true"
 
 IMAGE_USE_MODE = os.getenv("IMAGE_USE_MODE", "auto").lower()  # auto | always | never
 
-# --- ElevenLabs config ---
-TTS_PROVIDER = os.getenv("TTS_PROVIDER", "coqui").lower()
-ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY", "").strip()
-ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "").strip()
-ELEVEN_VOICE_NAME = os.getenv("ELEVEN_VOICE_NAME", "").strip()
-ELEVEN_MODEL_ID = os.getenv("ELEVEN_MODEL_ID", "eleven_multilingual_v2")
-
-# --- Coqui TTS config ---
-COQUI_MODEL = os.getenv("COQUI_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2")
-COQUI_LANGUAGE = os.getenv("COQUI_LANGUAGE", "no")
-COQUI_SPEAKER_WAV = os.getenv("COQUI_SPEAKER_WAV", "").strip()
-
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "piper").lower()
 
 URL_RE = re.compile(r"https?://\S+")
 CODE_FENCE = re.compile(r"```.*?```", re.S)
@@ -107,46 +103,65 @@ LAST_TAIL: dict[str, AudioSegment] = {}
 TAIL_MS = int(os.getenv("STT_TAIL_MS", "900"))  # overlap duration
 STT_RECENT = {}  # channel_i
 HISTORY_TURNS = int(os.getenv("HISTORY_TURNS", "10"))
+# --- STT post-processing helpers ---
+_STT_RECENT = {}  # channel_id -> deque[(timestamp, normalized_text)]
+# Visual intent patterns (used only when NO image is attached)
+
+# 1) Øverst i filen (sammen med andre globale variabler)
+VISION_CACHE = {}  # guild_id -> {"b64": str, "ts": float}
+VISION_MAX_AGE = int(os.getenv("VISION_MAX_AGE", "45"))  # sekunder
+
+def _vision_set(guild_id: str | None, img_b64: str | None):
+    if not guild_id or not img_b64:
+        return
+    VISION_CACHE[guild_id] = {"b64": img_b64, "ts": time.time()}
+
+def _vision_get(guild_id: str | None) -> str | None:
+    if not guild_id:
+        return None
+    item = VISION_CACHE.get(guild_id)
+    if not item:
+        return None
+    if (time.time() - item["ts"]) > VISION_MAX_AGE:
+        return None
+    return item["b64"]
+
 
 VISUAL_PATTERNS = [
     # Norwegian
-    r"\b(se|sjekk|kikk|ta en titt)( på)? .*(skjerm|bilde|screenshot|vindu|fane|kart)\b",
-    r"\b(på skjermen|i bildet|på bildet)\b",
-    r"\b(hva er dette|hva skjer nå|hva bør jeg gjøre nå)\b",
-    r"\b(hvor er jeg|hvor er det)\b",
-    r"\b(denne|dette|det her)\b",
+    r"\b(hva\s+er\s+dette|hva\s+ser\s+du|hva\s+ser\s+du\s+her|hva\s+er\s+det)\b",
+    r"\b(på\s+skjermen|i\s+bildet|på\s+bildet)\b",
+    r"\b(se|sjekk|kikk|ta\s+en\s+titt)\s*(på\s+)?(skjermen|bildet|screenshot|vindu|fane|kart)\b",
+    r"\b(hvor\s+er\s+jeg|hvor\s+er\s+det)\b",
     # English
-    r"\b(look|check|see)( at)? .*(screen|image|picture|screenshot|window|tab|map)\b",
-    r"\b(on (the )?screen|in (the )?image)\b",
-    r"\b(what is this|what should i do now|where am i)\b",
-    r"\b(this|that)\b",
+    r"\b(what\s+is\s+this|what\s+do\s+you\s+see|what\s+do\s+you\s+see\s+here|what\s+should\s+i\s+do\s+now|where\s+am\s+i)\b",
+    r"\b(on\s+(the\s+)?screen|in\s+(the\s+)?image|in\s+(the\s+)?picture)\b",
 ]
-
-# --- STT post-processing helpers ---
-_STT_RECENT = {}  # channel_id -> deque[(timestamp, normalized_text)]
-
+VISUAL_SHORT_TRIGGERS = {"se", "se da", "se då", "look", "see", "check"}
 
 def _needs_image(user_text: str) -> bool:
+    """Only used when NO image is present: decide whether we should ask for one."""
     t = unidecode((user_text or "").lower()).strip()
     if not t:
         return False
-    # short deictic questions usually need vision
-    if re.search(r"\b(this|that|denne|dette|det her)\b", t) and len(t) <= 80:
+    if t in VISUAL_SHORT_TRIGGERS:
         return True
     for pat in VISUAL_PATTERNS:
-        if re.search(pat, t):
+        if re.search(pat, t, flags=re.I):
             return True
     return False
 
 def _should_use_image(user_text: str, image_b64: str | None) -> bool:
-    if not image_b64:
-        return False
+    """Decide whether to ATTACH the image to the model call."""
+    has_img = bool(image_b64)
     mode = IMAGE_USE_MODE
-    if mode == "always":
-        return True
     if mode == "never":
         return False
-    return _needs_image(user_text)  # auto
+    if mode == "always":
+        return has_img
+    # mode == "auto": if there's an image, attach it; don't gate on text
+    return has_img
+
 
 
 def _stt_norm(s: str) -> str:
@@ -386,155 +401,7 @@ def _tts_piper(text: str) -> bytes:
             pass
 
 
-_coqui_model = None
 
-
-def _coqui_ensure_model():
-    global _coqui_model
-    if _coqui_model is not None:
-        return _coqui_model
-    from TTS.api import TTS
-    import torch
-
-    print(f"[TTS] Loading Coqui model: {COQUI_MODEL}")
-    _coqui_model = TTS(model_name=COQUI_MODEL)
-
-    if torch.cuda.is_available():
-        print("[TTS] Moving model to GPU...")
-        _coqui_model.to("cuda")
-    else:
-        print("[TTS] GPU not available, using CPU.")
-
-    # --- PATCH tokenizer to always give attention_mask ---
-    try:
-        tok = getattr(_coqui_model, "tokenizer", None)
-        if tok:
-            orig_call = tok.__call__
-            def call_with_mask(*args, **kwargs):
-                kwargs.setdefault("return_attention_mask", True)
-                return orig_call(*args, **kwargs)
-            tok.__call__ = call_with_mask
-            print("[Patch] Coqui tokenizer now always returns attention_mask.")
-    except Exception as e:
-        print("[Patch] Could not patch tokenizer:", e)
-
-    return _coqui_model
-
-def _tts_coqui(text: str) -> bytes:
-    model = _coqui_ensure_model()
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
-    try:
-        base = {"text": text, "file_path": tmp_path}
-
-        if COQUI_SPEAKER_WAV and os.path.exists(COQUI_SPEAKER_WAV):
-            base["speaker_wav"] = COQUI_SPEAKER_WAV
-        else:
-            raise RuntimeError("Coqui XTTS needs a speaker_wav. Set COQUI_SPEAKER_WAV in .env.")
-
-        # Use English (you said no mapping)
-        base["language"] = "en"
-
-        # 1) Synthesize at model's native sample rate
-        model.tts_to_file(**base)
-
-        # 2) Load the wav, resample to 16 kHz properly, then MP3 encode
-        wav, sr = torchaudio.load(tmp_path)       # wav shape: [channels, samples]
-        target_sr = 16000
-        if sr != target_sr:
-            wav = torchaudio.functional.resample(wav, sr, target_sr)
-
-        # Convert to mono if needed
-        if wav.size(0) > 1:
-            wav = wav.mean(dim=0, keepdim=True)
-
-        # Save a temp resampled wav and export to mp3 via pydub/ffmpeg
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as rs_wav:
-            rs_path = rs_wav.name
-        try:
-            torchaudio.save(rs_path, wav, target_sr)  # proper resampled WAV
-            seg = AudioSegment.from_file(rs_path, format="wav")
-            out = io.BytesIO()
-            seg.export(out, format="mp3", bitrate="64k")
-            return out.getvalue()
-        finally:
-            try: os.remove(rs_path)
-            except: pass
-
-    finally:
-        try: os.remove(tmp_path)
-        except: pass
-
-def _eleven_fetch_voice(voice_id: str) -> dict:
-    r = requests.get(
-        f"https://api.elevenlabs.io/v1/voices/{voice_id}",
-        headers={"xi-api-key": ELEVEN_API_KEY},
-        timeout=15,
-    )
-    if r.status_code != 200:
-        try:
-            err = r.json()
-        except Exception:
-            err = r.text
-        raise RuntimeError(f"ElevenLabs voice lookup failed ({r.status_code}): {err}")
-    return r.json()
-
-def _eleven_resolve_voice_id() -> str:
-    if ELEVEN_VOICE_ID:
-        # Verify access and log the name to avoid surprises
-        meta = _eleven_fetch_voice(ELEVEN_VOICE_ID)
-        print(f"[TTS] Using Eleven voice ID {ELEVEN_VOICE_ID} -> name='{meta.get('name')}'")
-        return ELEVEN_VOICE_ID
-
-    if not ELEVEN_VOICE_NAME:
-        raise RuntimeError("Set ELEVEN_VOICE_ID or ELEVEN_VOICE_NAME in .env")
-
-    # No ID given: lookup by name (fresh; no cache)
-    r = requests.get(
-        "https://api.elevenlabs.io/v1/voices",
-        headers={"xi-api-key": ELEVEN_API_KEY},
-        timeout=15,
-    )
-    r.raise_for_status()
-    voices = r.json().get("voices", [])
-    cand = [v for v in voices if v.get("name","").lower() == ELEVEN_VOICE_NAME.lower()]
-    if not cand:
-        cand = [v for v in voices if ELEVEN_VOICE_NAME.lower() in v.get("name","").lower()]
-    if not cand:
-        raise RuntimeError(f"ElevenLabs voice named '{ELEVEN_VOICE_NAME}' not found")
-    vid = cand[0]["voice_id"]
-    print(f"[TTS] Resolved Eleven voice name '{ELEVEN_VOICE_NAME}' -> id={vid}")
-    return vid
-
-def _tts_elevenlabs(text: str) -> bytes:
-    if not ELEVEN_API_KEY:
-        raise RuntimeError("ELEVEN_API_KEY not set")
-    voice_id = _eleven_resolve_voice_id()
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    payload = {
-        "text": text,
-        "model_id": ELEVEN_MODEL_ID,
-        "voice_settings": {
-            "stability": float(os.getenv("ELEVEN_STABILITY", "0.40")),
-            "similarity_boost": float(os.getenv("ELEVEN_SIMILARITY", "0.85")),
-            "style": float(os.getenv("ELEVEN_STYLE", "0.25")),
-            "use_speaker_boost": os.getenv("ELEVEN_SPEAKER_BOOST", "true").lower() == "true",
-        },
-    }
-    headers = {
-        "xi-api-key": ELEVEN_API_KEY,
-        "accept": "audio/mpeg",
-        "content-type": "application/json",
-    }
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
-    # If it failed (e.g., you don’t have rights to that voice), they return JSON error
-    if r.headers.get("content-type","").startswith("application/json") or r.status_code >= 400:
-        try:
-            err = r.json()
-        except Exception:
-            err = {"error": r.text}
-        raise RuntimeError(f"ElevenLabs error: {err}")
-    return r.content
 
 def _split_sentences(txt: str):
     # conservative sentence split; break very long sentences on commas
@@ -629,38 +496,82 @@ def _polish_audio(mp3_bytes: bytes) -> bytes:
     normalized.export(out, format="mp3", bitrate="128k")
     return out.getvalue()
 
+
+# --- Small TTS cache (LRU) ---
+
+_TTS_CACHE: "OrderedDict[str, bytes]" = OrderedDict()
+TTS_CACHE_MAX = int(os.getenv("TTS_CACHE_MAX", "32"))
+
+def _tts_cache_key(text: str) -> str:
+    # Piper voice + tekst er nok når vi ikke bruker andre leverandører
+    piper_v = os.getenv("PIPER_VOICE", "")
+    return f"{piper_v}|{hash(text)}"
+
+def _tts_cache_get(key: str) -> bytes | None:
+    try:
+        v = _TTS_CACHE.pop(key)   # bump LRU
+        _TTS_CACHE[key] = v
+        return v
+    except KeyError:
+        return None
+
+def _tts_cache_put(key: str, value: bytes) -> None:
+    _TTS_CACHE[key] = value
+    while len(_TTS_CACHE) > TTS_CACHE_MAX:
+        _TTS_CACHE.popitem(last=False)
+
+
+def _edge_tts_sync(ssml: str, voice: str) -> bytes:
+    """Kjør async Edge-TTS trygt fra sync-kontekst (Flask)."""
+    try:
+        import asyncio
+        return asyncio.run(_synth_ssml(ssml, voice))
+    except RuntimeError:
+        # hvis en event-loop allerede kjører: bruk en separat tråd/loop
+        result: dict[str, bytes] = {}
+        import threading, asyncio as _aio
+        def _runner():
+            loop = _aio.new_event_loop()
+            _aio.set_event_loop(loop)
+            try:
+                result["data"] = loop.run_until_complete(_synth_ssml(ssml, voice))
+            finally:
+                loop.close()
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start(); t.join()
+        return result.get("data", b"")
+
+
 def create_tts_audio(text: str) -> bytes:
     try:
         clean = _normalize_text(text)[:1200]
         sentences = _split_sentences(clean) or [clean or ""]
         plain = ". ".join(sentences)
 
-        provider = os.getenv("TTS_PROVIDER", "").lower()
+        # Alltid Piper (med Edge-fallback hvis Piper skulle feile)
+        cache_key = _tts_cache_key(plain)
+        cached = _tts_cache_get(cache_key)
+        if cached is not None:
+            return cached
 
-        if provider == "piper":
-            return _tts_piper(plain)
-        elif provider == "coqui":
-            return _tts_coqui(plain)
-        else:
-            # Edge TTS fallback if you keep it around
+        try:
+            audio = _tts_piper(plain)  # ← din eksisterende Piper-funksjon
+        except Exception as piper_err:
+            print("[TTS] Piper failed, trying Edge:", piper_err)
             ssml = _to_ssml(sentences)
-            mp3_raw = asyncio.run(_synth_ssml(ssml, VOICE_NAME))
+            raw = _edge_tts_sync(ssml, VOICE_NAME)  # ← din eksisterende VOICE_NAME/Edge-path
+            audio = _polish_audio(raw) if TTS_POSTPROCESS and raw else raw
 
-            if not mp3_raw:
-                return b""
+        if not audio:
+            return b""
 
-            try:
-                if TTS_POSTPROCESS:
-                    return _polish_audio(mp3_raw)
-                else:
-                    return mp3_raw
-            except Exception as e:
-                print("[TTS] Post-process failed; returning raw audio:", e)
-                return mp3_raw
+        _tts_cache_put(cache_key, audio)
+        return audio
 
     except Exception as e:
         print("[TTS] Error in create_tts_audio:", e)
         return b""
+
 
 
 
@@ -695,11 +606,14 @@ def queue_message():
     user_name = data.get("user_name", "Unknown")
     user_id = (data.get("user_id") or "").strip() or None
     guild_id = (data.get("guild_id") or "").strip() or None
-    image_data = data.get("image")
-    image_b64 = None
-    if image_data:
-        image_b64 = image_data.split(",", 1)[1] if "," in image_data else image_data
-
+    image_b64, img_present, img_src = _extract_image_from_request(request)
+    if not img_present and (cached := _vision_get(guild_id)):
+        image_b64 = cached
+        img_present = True
+        img_src = "cache"
+    elif img_present:
+        _vision_set(guild_id, image_b64)
+        
     history_text = build_history_for_guild(guild_id)
     prompt = (
         "Dette er en pågående samtale i en Discord-server.\n"
@@ -710,7 +624,8 @@ def queue_message():
 
     start = time.time()
     use_img = _should_use_image(user_message, image_b64)
-    print(f"[IMG] policy: mode={IMAGE_USE_MODE}, attached={bool(use_img)}")
+    print(f"[IMG] policy: mode={IMAGE_USE_MODE}, img_present={img_present}, src={img_src}, will_use={use_img}")
+
     if use_img:
         prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
     reply_raw = get_ai_response(
@@ -718,7 +633,7 @@ def queue_message():
         user_id=user_id,
         user_name=user_name,
         guild_id=guild_id,
-        image=(image_b64 if use_img else None),
+        image=(f"data:image/*;base64,{image_b64}" if use_img and img_present else None),
     )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
@@ -774,10 +689,15 @@ def queue_audio():
     user_id = (request.form.get("user_id") or "").strip() or None
     guild_id   = (request.form.get("guild_id") or "").strip() or None
     audio_file = request.files.get("file")
-    image_data = request.form.get("image")
-    image_b64 = None
-    if image_data:
-        image_b64 = image_data.split(",", 1)[1] if "," in image_data else image_data
+    image_b64, img_present, img_src = _extract_image_from_request(request)
+    if not img_present and (cached := _vision_get(guild_id)):
+        image_b64 = cached
+        img_present = True
+        img_src = "cache"
+    elif img_present:
+        _vision_set(guild_id, image_b64)
+    
+    
     start_total = time.time()
     if not audio_file:
         return {"error": "no file"}, 400
@@ -847,6 +767,7 @@ def queue_audio():
     "Svar naturlig på norsk og hold tråden i samtalen."
 )
     use_img = _should_use_image(user_message, image_b64)
+    print(f"[IMG] policy: mode={IMAGE_USE_MODE}, img_present={img_present}, src={img_src}, will_use={use_img}")
     if use_img:
         prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
 
@@ -856,7 +777,7 @@ def queue_audio():
     user_id=user_id,
     user_name=user_name,
     guild_id=guild_id,
-    image=(image_b64 if use_img else None),
+    image=(f"data:image/*;base64,{image_b64}" if use_img and img_present else None),
 )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
@@ -904,6 +825,16 @@ def queue_audio():
 
     return {"status": "queued"}
 
+@app.route("/vision/update", methods=["POST"])
+def vision_update():
+    data = request.get_json(force=True) or {}
+    guild_id = (data.get("guild_id") or "").strip() or None
+    img = data.get("image") or ""
+    if not (guild_id and isinstance(img, str) and img.startswith("data:image/")):
+        return {"error": "guild_id + data:image/* nødvendig"}, 400
+    img_b64 = img.split(",", 1)[1] if "," in img else img
+    _vision_set(guild_id, img_b64)
+    return {"status": "ok"}
 
 @app.route("/", methods=["GET"])
 def index():
@@ -1252,8 +1183,119 @@ def control_discord_bot():
         return jsonify({"status": "not_running"})
     return jsonify({"error": "unknown action"}), 400
 
+def _extract_image_from_request(req):
+    """
+    Returnerer (image_b64, img_present, src) der:
+    - image_b64 er ren base64 (UTEN 'data:image/...;base64,')
+    - img_present er True hvis vi har et gyldig, ikke-overstort bilde
+    - src er 'json' eller 'form' eller 'none'
+    """
+    img = None
+    src = "none"
 
+    # JSON først
+    if req.is_json:
+        data = req.get_json(silent=True) or {}
+        img = data.get("image")
+        if img: src = "json"
+
+    # Deretter form (queue_audio)
+    if not img:
+        img = req.form.get("image")
+        if img: src = "form"
+
+    # Må være data-URI av bilde
+    if not img or not isinstance(img, str) or not img.startswith("data:image/"):
+        return None, False, src
+
+    # Plukk ut base64-delen
+    if "," in img:
+        img_b64 = img.split(",", 1)[1]
+    else:
+        img_b64 = img  # tåler ren base64 hvis du evt. sender det
+
+    # Størrelsesgrense (samme for begge endepunkter)
+    try:
+        approx_bytes = (len(img_b64) * 3) // 4
+        max_bytes = int(os.getenv("IMAGE_MAX_BYTES", "4000000"))  # 4 MB default
+        if approx_bytes > max_bytes:
+            print(f"[IMG] drop oversized: {approx_bytes} > {max_bytes}")
+            return None, False, src
+    except Exception as e:
+        print(f"[IMG] size check failed: {e}")
+
+    # Kjapp dekode-test for å unngå søppel som får modellen til å henge
+    try:
+        base64.b64decode(img_b64[:2000] + "==", validate=False)
+    except Exception:
+        print("[IMG] invalid base64 header sample")
+        return None, False, src
+
+    return img_b64, True, src
+
+@app.route("/eval", methods=["POST"])
+def eval_models():
+    payload = request.get_json(force=True) or {}
+    prompts = payload.get("prompts") or []
+    gold    = payload.get("gold")
+    active  = os.getenv("OLLAMA_MODEL", "mistral")
+    model_b = payload.get("model_b") or active
+    model_a = payload.get("model_a") or (active.split("-ft")[0] if "-ft" in active else active)
+    keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+
+    if not prompts:
+        for pair in training_data[-10:]:
+            for msg in pair:
+                if msg.get("role") == "user":
+                    prompts.append(msg.get("content",""))
+        prompts = [p for p in prompts if p][:5]
+
+    def _ask(model: str, prompt: str) -> str:
+        try:
+            resp = ollama_client.chat(
+                model=model,
+                keep_alive=keep_alive,
+                messages=[
+                    {"role": "system", "content": "Svar kort og presist på norsk."},
+                    {"role": "user", "content": prompt},
+                ],
+                options={
+                    "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "512")),
+                    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "256")),
+                    "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.7")),
+                    "repeat_penalty": float(os.getenv("OLLAMA_REPEAT_PENALTY", "1.05")),
+                    "num_gpu": int(os.getenv("OLLAMA_NUM_GPU", "1")),
+                },
+            )
+            return (resp.get("message", {}) or {}).get("content", "").strip()
+        except Exception as e:
+            return f"[error: {e}]"
+
+    import re as _re
+    def _overlap(a: str, b: str) -> float:
+        aw = set(_re.findall(r"[\wøæåA-ZÆØÅ]+", (a or "").lower()))
+        bw = set(_re.findall(r"[\wøæåA-ZÆØÅ]+", (b or "").lower()))
+        if not aw or not bw:
+            return 0.0
+        inter = len(aw & bw)
+        union = len(aw | bw)
+        return round(inter / union, 4)
+
+    results = []
+    for i, p in enumerate(prompts):
+        out_a = _ask(model_a, p)
+        out_b = _ask(model_b, p)
+        row = {"prompt": p, "model_a": model_a, "output_a": out_a, "model_b": model_b, "output_b": out_b}
+        if gold and i < len(gold):
+            row["gold"] = gold[i]
+            row["score_a"] = _overlap(out_a, gold[i])
+            row["score_b"] = _overlap(out_b, gold[i])
+        results.append(row)
+
+    return jsonify({"count": len(results), "results": results})
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5002)
+
+

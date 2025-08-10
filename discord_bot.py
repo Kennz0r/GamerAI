@@ -6,12 +6,16 @@ import requests
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+import base64
+from io import BytesIO
+import mimetypes
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_TEXT_CHANNEL = int(os.getenv("DISCORD_TEXT_CHANNEL", "0"))
 WEB_SERVER_URL = os.getenv("WEB_SERVER_URL", "http://localhost:5002")
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -36,42 +40,64 @@ else:
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
 
+def _is_img(att):
+    ct = (att.content_type or "").lower()
+    return ct.startswith("image/") or att.filename.lower().endswith((".png",".jpg",".jpeg",".webp",".gif",".bmp"))
+
+async def _att_to_datauri(att):
+    data = await att.read()
+    ct = (att.content_type or "").lower() or mimetypes.guess_type(att.filename)[0] or "image/*"
+    return f"data:{ct};base64,{base64.b64encode(data).decode()}"
+
+async def _url_to_datauri(url: str) -> str | None:
+    def _dl():
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        ct = r.headers.get("Content-Type") or mimetypes.guess_type(url)[0] or "image/*"
+        return f"data:{ct};base64,{base64.b64encode(r.content).decode()}"
+    try:
+        return await asyncio.to_thread(_dl)
+    except Exception as e:
+        print(f"embed fetch failed: {e}")
+        return None
+
+LAST_IMG_B64_BY_GUILD: dict[str, str] = {}
+
 async def send_to_web(channel_id: int, user_message: str, user_name: str,
-                      user_id: str | None = None, guild_id: str | None = None) -> None:
+                      user_id: str | None = None, guild_id: str | None = None,
+                      image_b64: str | None = None) -> None:
     def _post():
         try:
-            requests.post(
-                f"{WEB_SERVER_URL}/queue",
-                json={
-                    "channel_id": channel_id,
-                    "user_message": user_message,
-                    "user_name": user_name,
-                    "user_id": user_id,
-                    "guild_id": guild_id,
-                },
-                timeout=5,
-            )
+            payload = {
+                "channel_id": channel_id,
+                "user_message": user_message,
+                "user_name": user_name,
+                "user_id": str(user_id) if user_id else None,
+                "guild_id": guild_id,
+            }
+            if image_b64 and image_b64.startswith("data:image/"):
+                payload["image"] = image_b64
+            requests.post(f"{WEB_SERVER_URL}/queue", json=payload, timeout=5)
         except Exception as e:
             print(f"Error sending to web server: {e}")
     await asyncio.to_thread(_post)
 
 
 async def send_audio(data: bytes, user_name: str,
-                     user_id: int | None = None, guild_id: str | None = None) -> None:
+                     user_id: int | None = None, guild_id: str | None = None,
+                     image_b64: str | None = None) -> None:
     def _post():
         try:
             files = {"file": ("audio.mp3", data, "audio/mpeg")}
-            requests.post(
-                f"{WEB_SERVER_URL}/queue_audio",
-                data={
-                    "channel_id": DISCORD_TEXT_CHANNEL,
-                    "user_name": user_name,
-                    "user_id": str(user_id or ""),
-                    "guild_id": guild_id or "",
-                },
-                files=files,
-                timeout=360,
-            )
+            form = {
+                "channel_id": str(DISCORD_TEXT_CHANNEL),
+                "user_name": user_name,
+                "user_id": str(user_id or ""),
+                "guild_id": guild_id or "",
+            }
+            if image_b64 and image_b64.startswith("data:image/"):
+                form["image"] = image_b64
+            requests.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=360)
         except Exception as e:
             print(f"Error sending audio: {e}")
     await asyncio.to_thread(_post)
@@ -89,7 +115,8 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
                     or getattr(member, "name", None)
                     or str(user_id))
         guild_id = str(vc.guild.id) if vc.guild else None
-        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id)
+        img = LAST_IMG_B64_BY_GUILD.get(guild_id or "", None)
+        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id, image_b64=img)
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
@@ -192,23 +219,46 @@ async def on_ready():
 
 
 @bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-    if DISCORD_TEXT_CHANNEL and message.channel.id != DISCORD_TEXT_CHANNEL:
-        return
-    await bot.process_commands(message)
+async def on_message(message: discord.Message):
+    try:
+        if message.author.bot:
+            return
+        if DISCORD_TEXT_CHANNEL and message.channel.id != DISCORD_TEXT_CHANNEL:
+            return
 
-    content = message.content.lower()
-    if bot.user.mentioned_in(message) or content.startswith("anna"):
-        await send_to_web(
-            message.channel.id,
-            message.content,
-            message.author.display_name,
-            user_id=message.author.id,
-            guild_id=str(message.guild.id) if message.guild else None,
-        )
+        image_payload = None
+        for att in message.attachments:
+            if _is_img(att):
+                image_payload = await _att_to_datauri(att)
+                break
+        if not image_payload:
+            for e in message.embeds:
+                if getattr(e, "type", None) == "image" and getattr(e, "url", None):
+                    image_payload = await _url_to_datauri(e.url)
+                    if image_payload:
+                        break
 
+        gid = str(message.guild.id) if message.guild else ""
+        if image_payload and gid:
+            LAST_IMG_B64_BY_GUILD[gid] = image_payload
 
+        await bot.process_commands(message)
+
+        content = (message.content or "").lower()
+        is_trigger = ((bot.user and bot.user.mentioned_in(message)) or content.startswith(("arne")))
+        if is_trigger:
+            await send_to_web(
+                message.channel.id,
+                message.content,
+                message.author.display_name,
+                user_id=message.author.id,
+                guild_id=gid or None,
+                image_b64=image_payload or (LAST_IMG_B64_BY_GUILD.get(gid) if gid else None),
+            )
+    except Exception as e:
+        print(f"on_message error: {e}")
+        
+        
+        
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
