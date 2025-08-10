@@ -829,9 +829,26 @@ def queue_audio():
 def vision_update():
     data = request.get_json(force=True) or {}
     guild_id = (data.get("guild_id") or "").strip() or None
+    channel_id = (data.get("channel_id") or "").strip() or None
     img = data.get("image") or ""
-    if not (guild_id and isinstance(img, str) and img.startswith("data:image/")):
-        return {"error": "guild_id + data:image/* nødvendig"}, 400
+    # Require a valid data URI
+    if not (isinstance(img, str) and img.startswith("data:image/")):
+        return {"error": "data:image/* nødvendig"}, 400
+
+    # Resolve guild via channel if needed
+    if not guild_id and channel_id and DISCORD_TOKEN:
+        try:
+            url = f"{DISCORD_API_BASE}/channels/{channel_id}"
+            headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                guild_id = str(r.json().get("guild_id") or "")
+        except Exception as e:
+            print(f"[vision/update] resolve guild failed: {e}")
+
+    if not guild_id:
+        return {"error": "guild_id or channel_id required"}, 400
+
     img_b64 = img.split(",", 1)[1] if "," in img else img
     _vision_set(guild_id, img_b64)
     return {"status": "ok"}

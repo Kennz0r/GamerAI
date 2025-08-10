@@ -62,6 +62,7 @@ function App() {
   const grabberCanvasRef = React.useRef(null);
   const grabberTimerRef = React.useRef(null);
   const grabberStreamRef = React.useRef(null);
+  const lastVisionSentRef = React.useRef(0);
 
   const [imagePolicy, setImagePolicy] = React.useState('auto'); // 'auto' | 'always' | 'never'
   const [latestFrameUrl, setLatestFrameUrl] = React.useState(null);
@@ -566,6 +567,18 @@ function captureLatestFrame() {
   if (now - (previewTickRef.current || 0) > 500) {
     setLatestFrameUrl(latestFrameRef.current);
     previewTickRef.current = now;
+  }
+
+  // Periodically push the latest frame to the backend so Discord users get vision
+  const nowMs = Date.now();
+  if (textChannelId && nowMs - lastVisionSentRef.current > 5000) {
+    lastVisionSentRef.current = nowMs;
+    const payload = { image: latestFrameRef.current, channel_id: textChannelId };
+    fetch('/vision/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   }
 }
 
