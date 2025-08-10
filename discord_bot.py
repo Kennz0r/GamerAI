@@ -98,6 +98,8 @@ async def send_audio(data: bytes, user_name: str, user_id: int | None = None, gu
 
 # ---------- Voice recording ----------
 
+from pydub import AudioSegment  # legg øverst i fila
+
 async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
     for u, audio in getattr(sink, "audio_data", {}).items():
         if isinstance(u, (discord.Member, discord.User)):
@@ -109,10 +111,28 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
             name = (getattr(member, "display_name", None)
                     or getattr(member, "name", None)
                     or str(user_id))
+
         guild_id = str(vc.guild.id) if vc.guild else None
-        buf = audio.file.getvalue()
-        print(f"[bot] sending chunk: bytes={len(buf)} user={name}")
-        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id)
+
+        # 1) hent råbytes fra sink
+        raw = audio.file.getvalue()
+        print(f"[bot] sending chunk: bytes={len(raw)} user={name}")
+
+        # 2) RE-ENCODE: last som wav → 16 kHz mono → eksporter wav (stabil header)
+        try:
+            seg = AudioSegment.from_file(io.BytesIO(raw), format="wav")
+        except Exception as e:
+            print(f"[bot] from_file(wav) failed: {e}; trying generic loader")
+            seg = AudioSegment.from_file(io.BytesIO(raw))  # ffmpeg gjetter
+
+        seg = seg.set_channels(1).set_frame_rate(16000)
+
+        out = io.BytesIO()
+        seg.export(out, format="wav")  # viktig: WAV, ikke mp3
+        fixed = out.getvalue()
+
+        await send_audio(fixed, name, user_id=user_id, guild_id=guild_id)
+
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
     if not HAS_SINKS or not HAS_FFMPEG:
