@@ -11579,3 +11579,13 @@ Nå sier : hva ser du ?`
 Svar naturlig på norsk og hold tråden i samtalen.
 (Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)
 2025-08-10 20:54:30,950 - Arne Borheim (action=None): Jeg ser en åpen sletten med trær og en høy fjelltopp i det fjerne.
+2025-08-10 22:07:27,559 - Using model: gemma3:4b-it-qat
+2025-08-10 22:07:27,559 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier : Hei alle, nå veier vi.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-10 22:07:31,415 - Arne Borheim (action=None): Å, så det er veie-tid. Ok.
+2025-08-10 22:07:52,432 - Using model: gemma3:4b-it-qat
+2025-08-10 22:07:52,432 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier : Hei, hva gjør du?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-10 22:07:54,026 - Arne Borheim (action=None): Prøver å finne ut hva som er nytt. Du?

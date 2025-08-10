@@ -69,6 +69,55 @@ def resolve_discord_name(user_id: str) -> str:
         return r.json().get("global_name") or r.json().get("username", user_id)
     return user_id
 
+
+def _safe_ext(fs) -> str:
+    """Choose file extension based on mimetype/filename."""
+    mt = (getattr(fs, "mimetype", "") or "").lower()
+    if "webm" in mt: return ".webm"
+    if "mpeg" in mt or "mp3" in mt: return ".mp3"
+    if "wav" in mt or "wave" in mt: return ".wav"
+    # fallback to filename
+    ext = (os.path.splitext(getattr(fs, "filename", "") or "")[1] or "").lower()
+    if ext in (".webm", ".mp3", ".wav"): return ext
+    return ".webm"  # MediaRecorder default
+
+from pydub import AudioSegment
+
+def _load_audio_best_effort(path: str) -> AudioSegment:
+    """
+    Generic loader that handles webm/opus, mp3, wav, etc.
+    Try generic first (ffmpeg), then explicit formats, and only then raw WAV.
+    """
+    # 1) generic (lets ffmpeg sniff the container)
+    try:
+        seg = AudioSegment.from_file(path)
+        if len(seg) > 0: return seg
+    except Exception as e:
+        print(f"[srv] from_file generic failed: {e}")
+
+    # 2) common explicit formats
+    for fmt in ("webm", "ogg", "mp3", "wav"):
+        try:
+            seg = AudioSegment.from_file(path, format=fmt)
+            if len(seg) > 0: return seg
+        except Exception as e:
+            print(f"[srv] from_file({fmt}) failed: {e}")
+
+    # 3) if it's really a WAV, last-resort raw read
+    try:
+        import wave as _wave
+        with _wave.open(path, "rb") as wf:
+            ch, sr, sw, nf = wf.getnchannels(), wf.getframerate(), wf.getsampwidth(), wf.getnframes()
+            raw = wf.readframes(nf)
+            print(f"[srv] wave.open: ch={ch} sr={sr} sw={sw} frames={nf} bytes={len(raw)}")
+        if nf > 0 and len(raw) > 0:
+            return AudioSegment(data=raw, sample_width=sw, frame_rate=sr, channels=ch)
+    except Exception as e:
+        print(f"[srv] wave.open failed: {e}")
+
+    return AudioSegment.silent(duration=0)
+
+
 def _load_wav_best_effort(path: str) -> AudioSegment:
     """
     Prøver flere veier for å lese WAV-fila:
@@ -788,7 +837,7 @@ def queue_audio():
 
     # --- unike stier pr request ---
     uid = uuid.uuid4().hex
-    ext = os.path.splitext(audio_file.filename or "chunk.wav")[1] or ".wav"
+    ext = _safe_ext(audio_file)
     raw_path    = os.path.join("tmp_audio", f"{uid}{ext}")
     merged_path = os.path.join("tmp_audio", f"{uid}_merged.wav")
 
@@ -805,13 +854,12 @@ def queue_audio():
     lock_key = user_id or "global"
     with USER_LOCKS[lock_key]:
         try:
-            audio_seg = _load_wav_best_effort(raw_path)
-            print(f"[srv] raw_loaded: dur_ms={len(audio_seg)} sr(guess)={getattr(audio_seg, 'frame_rate', 'NA')} ch={getattr(audio_seg, 'channels', 'NA')}")
+            audio_seg = _load_audio_best_effort(raw_path)
+            print(f"[srv] raw_loaded: dur_ms={len(audio_seg)} sr={getattr(audio_seg,'frame_rate','NA')} "
+                f"ch={getattr(audio_seg,'channels','NA')} size={os.path.getsize(raw_path)}")
             if len(audio_seg) == 0:
-                # vi har faktisk tomt innhold – ingen vits å gå videre
                 return {"status": "ignored"}
 
-            # konverter til mono 16k og normaliser for STT
             audio_seg = audio_seg.set_channels(1).set_frame_rate(16000)
             audio_seg = effects.normalize(audio_seg)
 
