@@ -88,7 +88,8 @@ async def send_audio(data: bytes, user_name: str,
                      image_b64: str | None = None) -> None:
     def _post():
         try:
-            files = {"file": ("audio.mp3", data, "audio/mpeg")}
+            # Use uncompressed PCM audio for better speech recognition quality
+            files = {"file": ("audio.wav", data, "audio/wav")}
             form = {
                 "channel_id": str(DISCORD_TEXT_CHANNEL),
                 "user_name": user_name,
@@ -129,7 +130,8 @@ async def voice_listener(vc: discord.VoiceClient) -> None:
     CHUNK_SEC = float(os.getenv("VOICE_CHUNK_SEC", "1.2"))
 
     while vc.is_connected():
-        sink = discord.sinks.MP3Sink()
+        # Record raw PCM data (WAV) instead of MP3 to avoid extra compression artifacts
+        sink = discord.sinks.WaveSink()
         done = asyncio.Event()
 
         async def _callback(s, *_):
