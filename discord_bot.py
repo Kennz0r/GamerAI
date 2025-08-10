@@ -54,30 +54,10 @@ def _is_img(att):
     ct = (att.content_type or "").lower()
     return ct.startswith("image/") or att.filename.lower().endswith((".png",".jpg",".jpeg",".webp",".gif",".bmp"))
 
-async def _att_to_datauri(att):
-    data = await att.read()
-    ct = (att.content_type or "").lower() or mimetypes.guess_type(att.filename)[0] or "image/*"
-    return f"data:{ct};base64,{base64.b64encode(data).decode()}"
-
-async def _url_to_datauri(url: str) -> str | None:
-    def _dl():
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        ct = r.headers.get("Content-Type") or mimetypes.guess_type(url)[0] or "image/*"
-        return f"data:{ct};base64,{base64.b64encode(r.content).decode()}"
-    try:
-        return await asyncio.to_thread(_dl)
-    except Exception as e:
-        print(f"embed fetch failed: {e}")
-        return None
-
-LAST_IMG_B64_BY_GUILD: dict[str, str] = {}
-
-# 1) Dropp hele image-samlingen i on_message()
-#    ... fjern løkkene over attachments/embeds og LAST_IMG_B64_BY_GUILD
 
 # 2) send_to_web: ikke aksepter/videresend image_b64
-async def send_to_web(channel_id, user_message, user_name, user_id=None, guild_id=None) -> None:
+async def send_to_web(channel_id: int, user_message: str, user_name: str,
+                      user_id: str | None = None, guild_id: str | None = None) -> None:
     def _post():
         try:
             payload = {
@@ -124,8 +104,7 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
                     or getattr(member, "name", None)
                     or str(user_id))
         guild_id = str(vc.guild.id) if vc.guild else None
-        img = LAST_IMG_B64_BY_GUILD.get(guild_id or "", None)
-        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id, image_b64=img)
+        await send_audio(audio.file.getvalue(), name, user_id=user_id, guild_id=guild_id)
 
 
 async def voice_listener(vc: discord.VoiceClient) -> None:
@@ -236,22 +215,7 @@ async def on_message(message: discord.Message):
         if DISCORD_TEXT_CHANNEL and message.channel.id != DISCORD_TEXT_CHANNEL:
             return
 
-        image_payload = None
-        for att in message.attachments:
-            if _is_img(att):
-                image_payload = await _att_to_datauri(att)
-                break
-        if not image_payload:
-            for e in message.embeds:
-                if getattr(e, "type", None) == "image" and getattr(e, "url", None):
-                    image_payload = await _url_to_datauri(e.url)
-                    if image_payload:
-                        break
-
-        gid = str(message.guild.id) if message.guild else ""
-        if image_payload and gid:
-            await _post_vision_update(gid, image_payload)
-
+        gid = str(message.guild.id) if message.guild else None
         await bot.process_commands(message)
 
         content = (message.content or "").lower()
@@ -262,7 +226,7 @@ async def on_message(message: discord.Message):
                 message.content,
                 message.author.display_name,
                 user_id=message.author.id,
-                guild_id=gid or None,
+                guild_id=gid,
             )
     except Exception as e:
         print(f"on_message error: {e}")
