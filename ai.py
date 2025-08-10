@@ -12,7 +12,7 @@ import atexit, time, threading
 import numpy as np, soundfile as sf, webrtcvad, subprocess
 from faster_whisper import WhisperModel
 import torch
-
+import glob
 
 load_dotenv()
 
@@ -854,47 +854,55 @@ def _webrtcvad_trim(in_wav: str, sr: int = 16000, frame_ms: int = 20, pad_ms: in
 
 
 
-def transcribe_audio(wav_path: str) -> str:
-    # 1) denoise safely
-    dn = _ffmpeg_denoise(wav_path)
-    # 2) VAD safely
-    vad_wav = _webrtcvad_trim(dn, sr=16000,
-                              frame_ms=int(os.getenv("VAD_FRAME_MS","20")),
-                              pad_ms=int(os.getenv("VAD_PAD_MS","250")))
+def transcribe_audio(path: str, *, cleanup: bool =True) -> str:
+    wav_path = path  # alias so old code keeps working
+    dn_path = None
+    vad_path = None
+    try:
+        dn_path  = _ffmpeg_denoise(wav_path)                  # returns a temp wav path (or original)
+        vad_path = _webrtcvad_trim(dn_path, sr=16000,
+                                   frame_ms=int(os.getenv("VAD_FRAME_MS","20")),
+                                   pad_ms=int(os.getenv("VAD_PAD_MS","250")))
+        model = _ensure_stt_model()
+        language = os.getenv("STT_LANG", "no")
+        initial_prompt = os.getenv("STT_INITIAL_PROMPT", "").strip() or None
 
-    model = _ensure_stt_model()
-    language = os.getenv("STT_LANG", "no")
-    initial_prompt = os.getenv("STT_INITIAL_PROMPT", "").strip() or None
+        segments, info = model.transcribe(
+            vad_path,                       # use the VAD’d path
+            language=language,
+            vad_filter=False,               # we already did WebRTC VAD
+            temperature=[0.0],
+            beam_size=int(os.getenv("STT_BEAM","5")),
+            best_of=int(os.getenv("STT_BEST_OF","5")),
+            condition_on_previous_text=False,
+            word_timestamps=False,
+            initial_prompt=initial_prompt,
+        )
 
-    segments, info = model.transcribe(
-        vad_wav,
-        language=language,
-        vad_filter=False,                 # we already did WebRTC VAD
-        temperature=[0.0],                # deterministic
-        beam_size=int(os.getenv("STT_BEAM","5")),
-        best_of=int(os.getenv("STT_BEST_OF","5")),
-        condition_on_previous_text=False,
-        word_timestamps=False,
-        initial_prompt=initial_prompt,
-    )
+        pieces = []
+        min_chars   = int(os.getenv("STT_MIN_SEG_CHARS", "2"))
+        drop_nsp    = float(os.getenv("STT_DROP_NO_SPEECH", "0.60"))
+        min_logprob = float(os.getenv("STT_MIN_LOGPROB", "-1.0"))
 
-    pieces = []
-    min_chars   = int(os.getenv("STT_MIN_SEG_CHARS", "2"))
-    drop_nsp    = float(os.getenv("STT_DROP_NO_SPEECH", "0.60"))
-    min_logprob = float(os.getenv("STT_MIN_LOGPROB", "-1.0"))
+        for s in segments:
+            t = (s.text or "").strip()
+            if len(t) < min_chars:
+                continue
+            if (getattr(s, "no_speech_prob", 0.0) or 0.0) > drop_nsp:
+                continue
+            if (getattr(s, "avg_logprob", 0.0) or 0.0) < min_logprob:
+                continue
+            pieces.append(t)
 
-    for s in segments:
-        t = (s.text or "").strip()
-        if len(t) < min_chars:
-            continue
-        if (getattr(s, "no_speech_prob", 0.0) or 0.0) > drop_nsp:
-            continue
-        if (getattr(s, "avg_logprob", 0.0) or 0.0) < min_logprob:
-            continue
-        pieces.append(t)
+        return " ".join(pieces).strip()
 
-    return " ".join(pieces).strip()
-
-
+    finally:
+        if cleanup:
+            base = os.path.splitext(wav_path)[0]
+            # delete the denoise/VAD intermediates (and any pattern-matched leftovers)
+            for p in set([dn_path, vad_path] + glob.glob(base + "_dn*.wav")):
+                if p and os.path.exists(p) and p != wav_path:
+                    try: os.remove(p)
+                    except: pass
 
 

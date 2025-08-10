@@ -232,6 +232,7 @@ def vision_request():
     if not VISION_REQUESTS:
         return jsonify({})
     req = VISION_REQUESTS.pop(0)
+    print(f"[VISION] request popped (guild={req['guild_id']} chan={req['channel_id']})")
     return jsonify({"channel_id": req["channel_id"], "guild_id": req["guild_id"]})
 
 
@@ -886,15 +887,20 @@ def queue_audio():
 
             # Nå har vi tekst → evt. be web om skjermbilde
             if not img_present and _needs_image(user_message):
+                print(f"[VISION] need image → signal (guild={guild_id} chan={channel_id}) await={VISION_AWAIT_MS}ms")
                 _vision_signal(channel_id, guild_id)
-                if guild_id and VISION_AWAIT_MS > 0:
-                    deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
-                    while time.time() < deadline:
-                        cached = _vision_get(guild_id)
-                        if cached:
-                            image_b64, img_present, img_src = cached, True, "webpush"
-                            break
-                        time.sleep(0.05)
+
+                wait_ms = max(VISION_AWAIT_MS, 5000)
+                deadline = time.time() + (wait_ms / 1000.0)
+                got = False
+                while time.time() < deadline:
+                    cached = _vision_get(guild_id)
+                    if cached:
+                        image_b64, img_present, img_src = cached, True, "webpush"
+                        got = True
+                        break
+                    time.sleep(0.05)
+                print(f"[VISION] wait result: got={got} src={img_src} img_present={img_present}")
 
         except ValueError as err:
             return {"error": str(err)}, 400
@@ -1000,7 +1006,8 @@ def vision_update():
 
     img_b64 = img.split(",", 1)[1] if "," in img else img
     _vision_set(guild_id, img_b64)
-    return {"status": "ok"}
+    print(f"[VISION] update received (guild={guild_id}) size={len(img_b64)//1024}KB")
+    return {"status": "ok", "guild_id": guild_id}
 
 @app.route("/", methods=["GET"])
 def index():
@@ -1473,11 +1480,14 @@ def eval_models():
 
 
 if __name__ == "__main__":
-    try:
-        from waitress import serve
-        serve(app, host="0.0.0.0", port=5002, threads=8)  # <<< robust on Windows
-    except Exception:
-        # fallback if waitress isn't installed
-        app.run(host="0.0.0.0", port=5002, debug=False, use_reloader=False, threaded=True)
-
+    from waitress import serve
+    serve(
+        app,
+        host="0.0.0.0",
+        port=5002,
+        threads=int(os.getenv("WS_THREADS", "24")),        # try 24–48
+        connection_limit=int(os.getenv("WS_CONN", "200")), # more concurrent sockets
+        channel_timeout=int(os.getenv("WS_CH_TIMEOUT", "90")),
+        ident=None,
+    )
 

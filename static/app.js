@@ -559,26 +559,28 @@ async function grabScreenAsDataURL() {
 
 setInterval(async () => {
   try {
-    const r = await fetch('/vision/request');
+    const r = await fetch('/vision/request', { cache: 'no-store' });
     const req = await r.json();
     if (!req || (!req.channel_id && !req.guild_id)) return;
 
-    const dataUrl = await grabScreenAsDataURL();
-    if (!dataUrl) return;
+    // make sure we actually have a frame
+    const img = (typeof latestFrameRef !== 'undefined' && latestFrameRef.current) ? latestFrameRef.current : null;
+    if (!img) return;
 
     await fetch('/vision/update', {
       method: 'POST',
-      headers: {'content-type': 'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         channel_id: req.channel_id || null,
-        guild_id: req.guild_id || null,
-        image: dataUrl
+        guild_id: req.guild_id || null,   // include guild to avoid lookup delay
+        image: img
       })
     });
+    // optional: console.log('[VISION] pushed frame on request');
   } catch (e) {
-    // stille feil
+    // silent
   }
-}, 400);
+}, 800); // respond fast
 
 function captureLatestFrame() {
   const v = grabberVideoRef.current;
