@@ -39,6 +39,16 @@ else:
     ffmpeg_dir = os.path.dirname(FFMPEG_EXECUTABLE)
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
+async def _post_vision_update(guild_id: str, image_datauri: str):
+    def _post():
+        try:
+            requests.post(f"{WEB_SERVER_URL}/vision/update",
+                          json={"guild_id": guild_id, "image": image_datauri},
+                          timeout=5)
+        except Exception as e:
+            print(f"[vision/update] {e}")
+    await asyncio.to_thread(_post)
+
 
 def _is_img(att):
     ct = (att.content_type or "").lower()
@@ -63,9 +73,11 @@ async def _url_to_datauri(url: str) -> str | None:
 
 LAST_IMG_B64_BY_GUILD: dict[str, str] = {}
 
-async def send_to_web(channel_id: int, user_message: str, user_name: str,
-                      user_id: str | None = None, guild_id: str | None = None,
-                      image_b64: str | None = None) -> None:
+# 1) Dropp hele image-samlingen i on_message()
+#    ... fjern løkkene over attachments/embeds og LAST_IMG_B64_BY_GUILD
+
+# 2) send_to_web: ikke aksepter/videresend image_b64
+async def send_to_web(channel_id, user_message, user_name, user_id=None, guild_id=None) -> None:
     def _post():
         try:
             payload = {
@@ -75,20 +87,15 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str,
                 "user_id": str(user_id) if user_id else None,
                 "guild_id": guild_id,
             }
-            if image_b64 and image_b64.startswith("data:image/"):
-                payload["image"] = image_b64
             requests.post(f"{WEB_SERVER_URL}/queue", json=payload, timeout=5)
         except Exception as e:
             print(f"Error sending to web server: {e}")
     await asyncio.to_thread(_post)
 
-
-async def send_audio(data: bytes, user_name: str,
-                     user_id: int | None = None, guild_id: str | None = None,
-                     image_b64: str | None = None) -> None:
+# 3) send_audio: ikke legg image i form
+async def send_audio(data, user_name, user_id=None, guild_id=None) -> None:
     def _post():
         try:
-            # Use uncompressed PCM audio for better speech recognition quality
             files = {"file": ("audio.wav", data, "audio/wav")}
             form = {
                 "channel_id": str(DISCORD_TEXT_CHANNEL),
@@ -96,12 +103,13 @@ async def send_audio(data: bytes, user_name: str,
                 "user_id": str(user_id or ""),
                 "guild_id": guild_id or "",
             }
-            if image_b64 and image_b64.startswith("data:image/"):
-                form["image"] = image_b64
             requests.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=360)
         except Exception as e:
             print(f"Error sending audio: {e}")
     await asyncio.to_thread(_post)
+
+
+
 
 
 async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
@@ -242,7 +250,7 @@ async def on_message(message: discord.Message):
 
         gid = str(message.guild.id) if message.guild else ""
         if image_payload and gid:
-            LAST_IMG_B64_BY_GUILD[gid] = image_payload
+            await _post_vision_update(gid, image_payload)
 
         await bot.process_commands(message)
 
@@ -255,7 +263,6 @@ async def on_message(message: discord.Message):
                 message.author.display_name,
                 user_id=message.author.id,
                 guild_id=gid or None,
-                image_b64=image_payload or (LAST_IMG_B64_BY_GUILD.get(gid) if gid else None),
             )
     except Exception as e:
         print(f"on_message error: {e}")

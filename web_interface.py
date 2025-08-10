@@ -111,6 +111,29 @@ _STT_RECENT = {}  # channel_id -> deque[(timestamp, normalized_text)]
 VISION_CACHE = {}  # guild_id -> {"b64": str, "ts": float}
 VISION_MAX_AGE = int(os.getenv("VISION_MAX_AGE", "45"))  # sekunder
 
+
+# øverst sammen med VISION_CACHE
+VISION_REQUESTS = []  # FIFO av {"channel_id": str, "guild_id": str, "ts": float}
+VISION_AWAIT_MS = int(os.getenv("VISION_AWAIT_MS", "1200"))  # ventetid på web-push
+
+def _vision_signal(channel_id: str | None, guild_id: str | None):
+    if not channel_id and not guild_id:
+        return
+    VISION_REQUESTS.append({"channel_id": str(channel_id or ""), "guild_id": str(guild_id or ""), "ts": time.time()})
+
+@app.route("/vision/request", methods=["GET"])
+def vision_request():
+    # dropp gamle requests (>5s)
+    now = time.time()
+    while VISION_REQUESTS and (now - VISION_REQUESTS[0]["ts"] > 5):
+        VISION_REQUESTS.pop(0)
+    if not VISION_REQUESTS:
+        return jsonify({})
+    req = VISION_REQUESTS.pop(0)
+    return jsonify({"channel_id": req["channel_id"], "guild_id": req["guild_id"]})
+
+
+
 def _vision_set(guild_id: str | None, img_b64: str | None):
     if not guild_id or not img_b64:
         return
@@ -613,6 +636,20 @@ def queue_message():
         img_src = "cache"
     elif img_present:
         _vision_set(guild_id, image_b64)
+    # ... etter _vision_get/_vision_set-blokka
+# Hvis spørsmålet krever syn men vi mangler bilde → be web om å pushe
+    if not img_present and _needs_image(user_message):
+        _vision_signal(channel_id, guild_id)
+    # vent et kort øyeblikk på at web pusher via /vision/update
+    if guild_id and VISION_AWAIT_MS > 0:
+        deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
+        while time.time() < deadline:
+            cached = _vision_get(guild_id)
+            if cached:
+                image_b64, img_present, img_src = cached, True, "webpush"
+                break
+            time.sleep(0.05)
+
         
     history_text = build_history_for_guild(guild_id)
     prompt = (
@@ -696,7 +733,20 @@ def queue_audio():
         img_src = "cache"
     elif img_present:
         _vision_set(guild_id, image_b64)
-    
+    # ... etter _vision_get/_vision_set-blokka
+# Hvis spørsmålet krever syn men vi mangler bilde → be web om å pushe
+    if not img_present and _needs_image(user_message):
+        _vision_signal(channel_id, guild_id)
+    # vent et kort øyeblikk på at web pusher via /vision/update
+    if guild_id and VISION_AWAIT_MS > 0:
+        deadline = time.time() + (VISION_AWAIT_MS / 1000.0)
+        while time.time() < deadline:
+            cached = _vision_get(guild_id)
+            if cached:
+                image_b64, img_present, img_src = cached, True, "webpush"
+                break
+            time.sleep(0.05)
+
     
     start_total = time.time()
     if not audio_file:
