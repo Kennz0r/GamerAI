@@ -3,14 +3,6 @@
     "169885360233512961": [
       {
         "role": "user",
-        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\nDette er en innsjø med mange små øyer! Ser ut som en vakker plass. Du lurer på hva \"dette\" er, og jeg tror \"dette\" refererer til de små øyene i vannet. Er det noe spesielt du lurer på om dem? Nå sier Kenneth: Hvor er du?\nSvar naturlig på norsk og hold tråden i samtalen.\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
-      },
-      {
-        "role": "assistant",
-        "content": "Jeg er her! Jeg ser ut som jeg er på en vakker innsjø med mange små øyer. Er det noe spesielt du lurer på om dem?"
-      },
-      {
-        "role": "user",
         "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva er dette?\nDette er en innsjø med mange små øyer! Ser ut som en vakker plass. Du lurer på hva \"dette\" er, og jeg tror \"dette\" refererer til de små øyene i vannet. Er det noe spesielt du lurer på om dem?\nHvor er du?\nJeg er her! Jeg ser ut som jeg er på en vakker innsjø med mange små øyer. Er det noe spesielt du lurer på om dem? Nå sier Kenneth: Hvor tror du deg?\nSvar naturlig på norsk og hold tråden i samtalen.\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
       },
       {
@@ -32,6 +24,14 @@
       {
         "role": "assistant",
         "content": "Åh, det ser utrolig deilig ut! Hvor er denne innsjøen da? Er det en spesiell plass du har sett den før? Jeg er litt fascinert, og vil gjerne vite mer om hvor den ligger. Er det en norsk innsjø?"
+      },
+      {
+        "role": "user",
+        "content": "Dette er en pågående samtale i en Discord-server.\nNå sier Kenneth: Teksting av Nicolai Winther\nSvar naturlig på norsk og hold tråden i samtalen."
+      },
+      {
+        "role": "assistant",
+        "content": "Ok, jeg forstår. Så du sier \"\" - det må være referansen til det skjermbildet med øyene du snakket om tidligere."
       }
     ],
     "347438146323218433": [
