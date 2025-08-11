@@ -11911,3 +11911,377 @@ Nå sier Kennz0r: Norsk samtale.
 Svar naturlig på norsk og hold tråden i samtalen.
 (Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)
 2025-08-11 16:41:28,421 - Arne Borheim (action=None): Åh, ja, det er jo helt nydelig! Virkelig en idyllisk liten øy!
+2025-08-11 17:25:39,526 - Using model: gemma3:4b-it-qat
+2025-08-11 17:25:39,526 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier Voice: Hei sånn alle!
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:25:42,411 - Arne Borheim (action=None): Hei! Hvordan går det?
+2025-08-11 17:25:51,569 - Using model: gemma3:4b-it-qat
+2025-08-11 17:25:51,569 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Hei sånn alle!
+AI: Hei! Hvordan går det?
+
+Nå sier Voice: Kom så går det.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:25:52,784 - Arne Borheim (action=None): Hvordan går det med deg?
+2025-08-11 17:26:01,207 - Using model: gemma3:4b-it-qat
+2025-08-11 17:26:01,208 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Hei sånn alle!
+AI: Hei! Hvordan går det?
+Voice: Kom så går det.
+AI: Hvordan går det med deg?
+
+Nå sier Voice: Hvordan går det med deg?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:26:02,568 - Arne Borheim (action=None): Går bra, takk! Bare sitter her og slapper av.
+2025-08-11 17:26:16,889 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:26:16,889 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Hei sånn alle!
+AI: Hei! Hvordan går det?
+Voice: Kom så går det.
+AI: Hvordan går det med deg?
+Voice: Hvordan går det med deg?
+AI: Går bra, takk! Bare sitter her og slapper av.
+
+Nå sier Voice: Bra, vil du være med å spille Minecraft?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:26:18,233 - Arne Borheim (action=None): Kan være, høres gøy ut! Hva slags ting skal vi bygge?
+2025-08-11 17:27:08,896 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:08,896 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Hei sånn alle!
+AI: Hei! Hvordan går det?
+Voice: Kom så går det.
+AI: Hvordan går det med deg?
+Voice: Hvordan går det med deg?
+AI: Går bra, takk! Bare sitter her og slapper av.
+Voice: Bra, vil du være med å spille Minecraft?
+AI: Kan være, høres gøy ut! Hva slags ting skal vi bygge?
+
+Nå sier Voice: Jeg skråter.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:10,346 - Arne Borheim (action=None): Hva slags ting skal vi bygge?
+2025-08-11 17:27:15,732 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:15,732 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Kom så går det.
+AI: Hvordan går det med deg?
+Voice: Hvordan går det med deg?
+AI: Går bra, takk! Bare sitter her og slapper av.
+Voice: Bra, vil du være med å spille Minecraft?
+AI: Kan være, høres gøy ut! Hva slags ting skal vi bygge?
+Voice: Jeg skråter.
+AI: Hva slags ting skal vi bygge?
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:17,055 - Arne Borheim (action=None): Hva med en hytte i fjellet?
+2025-08-11 17:27:23,727 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:23,727 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Hvordan går det med deg?
+AI: Går bra, takk! Bare sitter her og slapper av.
+Voice: Bra, vil du være med å spille Minecraft?
+AI: Kan være, høres gøy ut! Hva slags ting skal vi bygge?
+Voice: Jeg skråter.
+AI: Hva slags ting skal vi bygge?
+Voice: Teksting av Nicolai Winther
+AI: Hva med en hytte i fjellet?
+
+Nå sier Voice: Veldig kjente stemmen inn.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:25,096 - Arne Borheim (action=None): En hytte i fjellet høres fint ut! Hva med en koselig hytte med peis og et lite bibliotek?
+2025-08-11 17:27:27,546 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:27,546 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Bra, vil du være med å spille Minecraft?
+AI: Kan være, høres gøy ut! Hva slags ting skal vi bygge?
+Voice: Jeg skråter.
+AI: Hva slags ting skal vi bygge?
+Voice: Teksting av Nicolai Winther
+AI: Hva med en hytte i fjellet?
+Voice: Veldig kjente stemmen inn.
+AI: En hytte i fjellet høres fint ut! Hva med en koselig hytte med peis og et lite bibliotek?
+
+Nå sier Voice: Tusen takk.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:29,114 - Arne Borheim (action=None): Det høres fantastisk ut! Et bibliotek i hytta er en perfekt detalj.
+2025-08-11 17:27:34,670 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:34,670 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Jeg skråter.
+AI: Hva slags ting skal vi bygge?
+Voice: Teksting av Nicolai Winther
+AI: Hva med en hytte i fjellet?
+Voice: Veldig kjente stemmen inn.
+AI: En hytte i fjellet høres fint ut! Hva med en koselig hytte med peis og et lite bibliotek?
+Voice: Tusen takk.
+AI: Det høres fantastisk ut! Et bibliotek i hytta er en perfekt detalj.
+
+Nå sier Voice: Kostelig, kostelig.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:36,320 - Arne Borheim (action=None): Ja, det høres virkelig hyggelig ut! Et bibliotek i hytta er en kjempegøy detalj.
+2025-08-11 17:27:51,918 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:51,918 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Teksting av Nicolai Winther
+AI: Hva med en hytte i fjellet?
+Voice: Veldig kjente stemmen inn.
+AI: En hytte i fjellet høres fint ut! Hva med en koselig hytte med peis og et lite bibliotek?
+Voice: Tusen takk.
+AI: Det høres fantastisk ut! Et bibliotek i hytta er en perfekt detalj.
+Voice: Kostelig, kostelig.
+AI: Ja, det høres virkelig hyggelig ut! Et bibliotek i hytta er en kjempegøy detalj.
+
+Nå sier Voice: Da sender dere svarene. Jeg vil bare se hvordan han reagerer når vi...
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:53,306 - Arne Borheim (action=None): Ja, det er en god idé. Hva slags svar skal vi sende?
+2025-08-11 17:27:58,256 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:27:58,256 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Veldig kjente stemmen inn.
+AI: En hytte i fjellet høres fint ut! Hva med en koselig hytte med peis og et lite bibliotek?
+Voice: Tusen takk.
+AI: Det høres fantastisk ut! Et bibliotek i hytta er en perfekt detalj.
+Voice: Kostelig, kostelig.
+AI: Ja, det høres virkelig hyggelig ut! Et bibliotek i hytta er en kjempegøy detalj.
+Voice: Da sender dere svarene. Jeg vil bare se hvordan han reagerer når vi...
+AI: Ja, det er en god idé. Hva slags svar skal vi sende?
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:27:59,798 - Arne Borheim (action=None): Hva med å bare si noe enkelt som "Vi gleder oss til å se deg!"?
+2025-08-11 17:28:05,645 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:05,646 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Tusen takk.
+AI: Det høres fantastisk ut! Et bibliotek i hytta er en perfekt detalj.
+Voice: Kostelig, kostelig.
+AI: Ja, det høres virkelig hyggelig ut! Et bibliotek i hytta er en kjempegøy detalj.
+Voice: Da sender dere svarene. Jeg vil bare se hvordan han reagerer når vi...
+AI: Ja, det er en god idé. Hva slags svar skal vi sende?
+Voice: Teksting av Nicolai Winther
+AI: Hva med å bare si noe enkelt som "Vi gleder oss til å se deg!"?
+
+Nå sier Voice: Norsk samtale.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:07,037 - Arne Borheim (action=None): "Ja, det er en god start. En enkel hilsen er bra."
+2025-08-11 17:28:22,542 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:22,542 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Kostelig, kostelig.
+AI: Ja, det høres virkelig hyggelig ut! Et bibliotek i hytta er en kjempegøy detalj.
+Voice: Da sender dere svarene. Jeg vil bare se hvordan han reagerer når vi...
+AI: Ja, det er en god idé. Hva slags svar skal vi sende?
+Voice: Teksting av Nicolai Winther
+AI: Hva med å bare si noe enkelt som "Vi gleder oss til å se deg!"?
+Voice: Norsk samtale.
+AI: "Ja, det er en god start. En enkel hilsen er bra."
+
+Nå sier Voice: Koepa.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:24,001 - Arne Borheim (action=None): Ok, en enkel hilsen er bra.
+2025-08-11 17:28:29,357 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:29,357 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Da sender dere svarene. Jeg vil bare se hvordan han reagerer når vi...
+AI: Ja, det er en god idé. Hva slags svar skal vi sende?
+Voice: Teksting av Nicolai Winther
+AI: Hva med å bare si noe enkelt som "Vi gleder oss til å se deg!"?
+Voice: Norsk samtale.
+AI: "Ja, det er en god start. En enkel hilsen er bra."
+Voice: Koepa.
+AI: Ok, en enkel hilsen er bra.
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:30,746 - Arne Borheim (action=None): La oss si "Hei, gleder oss til å se deg!"?
+2025-08-11 17:28:42,855 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:42,855 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Teksting av Nicolai Winther
+AI: Hva med å bare si noe enkelt som "Vi gleder oss til å se deg!"?
+Voice: Norsk samtale.
+AI: "Ja, det er en god start. En enkel hilsen er bra."
+Voice: Koepa.
+AI: Ok, en enkel hilsen er bra.
+Voice: Teksting av Nicolai Winther
+AI: La oss si "Hei, gleder oss til å se deg!"?
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:44,178 - Arne Borheim (action=None): Ja, det høres bra ut!
+2025-08-11 17:28:49,537 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:49,537 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Norsk samtale.
+AI: "Ja, det er en god start. En enkel hilsen er bra."
+Voice: Koepa.
+AI: Ok, en enkel hilsen er bra.
+Voice: Teksting av Nicolai Winther
+AI: La oss si "Hei, gleder oss til å se deg!"?
+Voice: Teksting av Nicolai Winther
+AI: Ja, det høres bra ut!
+
+Nå sier Voice: Bare kan holde det for deg selv.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:50,882 - Arne Borheim (action=None): «Klingende bra! La oss da bruke det.»
+2025-08-11 17:28:56,055 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:56,056 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Koepa.
+AI: Ok, en enkel hilsen er bra.
+Voice: Teksting av Nicolai Winther
+AI: La oss si "Hei, gleder oss til å se deg!"?
+Voice: Teksting av Nicolai Winther
+AI: Ja, det høres bra ut!
+Voice: Bare kan holde det for deg selv.
+AI: «Klingende bra! La oss da bruke det.»
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:28:57,529 - Arne Borheim (action=None): Ok, da er det best å si "Hei, gleder oss til å se deg!"
+2025-08-11 17:28:59,671 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:28:59,671 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Teksting av Nicolai Winther
+AI: La oss si "Hei, gleder oss til å se deg!"?
+Voice: Teksting av Nicolai Winther
+AI: Ja, det høres bra ut!
+Voice: Bare kan holde det for deg selv.
+AI: «Klingende bra! La oss da bruke det.»
+Voice: Teksting av Nicolai Winther
+AI: Ok, da er det best å si "Hei, gleder oss til å se deg!"
+
+Nå sier Voice: Han sitter og snakker som bare faen.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:29:01,089 - Arne Borheim (action=None): Uff, det er jo ikke greit. Håper det roer seg ned.
+2025-08-11 17:29:10,241 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:29:10,241 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Teksting av Nicolai Winther
+AI: Ja, det høres bra ut!
+Voice: Bare kan holde det for deg selv.
+AI: «Klingende bra! La oss da bruke det.»
+Voice: Teksting av Nicolai Winther
+AI: Ok, da er det best å si "Hei, gleder oss til å se deg!"
+Voice: Han sitter og snakker som bare faen.
+AI: Uff, det er jo ikke greit. Håper det roer seg ned.
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:29:11,838 - Arne Borheim (action=None): Kan være litt vanskelig å vite nøyaktig hva som foregår, men jeg forstår at det er en som er litt irritert over at noen snakker for mye.
+2025-08-11 17:29:17,309 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:29:17,309 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Bare kan holde det for deg selv.
+AI: «Klingende bra! La oss da bruke det.»
+Voice: Teksting av Nicolai Winther
+AI: Ok, da er det best å si "Hei, gleder oss til å se deg!"
+Voice: Han sitter og snakker som bare faen.
+AI: Uff, det er jo ikke greit. Håper det roer seg ned.
+Voice: Teksting av Nicolai Winther
+AI: Kan være litt vanskelig å vite nøyaktig hva som foregår, men jeg forstår at det er en som er litt irritert over at noen snakker for mye.
+
+Nå sier Voice: Hvor er dette?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:29:18,650 - Arne Borheim (action=None): Hvor er det?
+2025-08-11 17:29:35,895 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:29:35,895 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Teksting av Nicolai Winther
+AI: Ok, da er det best å si "Hei, gleder oss til å se deg!"
+Voice: Han sitter og snakker som bare faen.
+AI: Uff, det er jo ikke greit. Håper det roer seg ned.
+Voice: Teksting av Nicolai Winther
+AI: Kan være litt vanskelig å vite nøyaktig hva som foregår, men jeg forstår at det er en som er litt irritert over at noen snakker for mye.
+Voice: Hvor er dette?
+AI: Hvor er det?
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:29:37,094 - Arne Borheim (action=None): Jeg ser at det er en samtale her. Hvor er det?
+2025-08-11 17:30:11,994 - Using model: gemma3:4b-it-qat-ft
+2025-08-11 17:30:11,994 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Han sitter og snakker som bare faen.
+AI: Uff, det er jo ikke greit. Håper det roer seg ned.
+Voice: Teksting av Nicolai Winther
+AI: Kan være litt vanskelig å vite nøyaktig hva som foregår, men jeg forstår at det er en som er litt irritert over at noen snakker for mye.
+Voice: Hvor er dette?
+AI: Hvor er det?
+Voice: Teksting av Nicolai Winther
+AI: Jeg ser at det er en samtale her. Hvor er det?
+
+Nå sier Voice: Hva er dette?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:30:14,471 - Arne Borheim (action=None): Jeg ser at det er en samtale her, og Nicolai ber om å finne ut hvor den foregår. Det er litt vanskelig å si uten mer informasjon, men det ser ut som det er en diskusjon som er litt opphetet.
+2025-08-11 17:35:38,793 - Using model: gemma3:4b-it-qat
+2025-08-11 17:35:38,793 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier : God dag alle.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:35:40,451 - Arne Borheim (action=None): God dag til deg også! Hva skjer her?
+2025-08-11 17:47:55,553 - Using model: gemma3:4b-it-qat
+2025-08-11 17:47:55,553 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier : Hei, Arne!
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 17:47:57,771 - Arne Borheim (action=None): Hei! Hva skjer?
+2025-08-11 18:08:12,656 - Using model: gemma3:4b-it-qat
+2025-08-11 18:08:12,656 - User message: Dette er en pågående samtale i en Discord-server.
+Nå sier Voice: Norsk samtale.
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 18:08:14,724 - Arne Borheim (action=None): Ja, det stemmer. En samtale på norsk er i gang.
+2025-08-11 18:08:25,128 - Using model: gemma3:4b-it-qat
+2025-08-11 18:08:25,128 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Norsk samtale.
+AI: Ja, det stemmer. En samtale på norsk er i gang.
+
+Nå sier Voice: Hva har du gjort?
+Svar naturlig på norsk og hold tråden i samtalen.
+2025-08-11 18:08:26,404 - Arne Borheim (action=None): Jeg har bare slapp av, egentlig. Ikke gjort noe spesielt.
+2025-08-11 18:08:44,490 - Using model: gemma3:4b-it-qat
+2025-08-11 18:08:44,490 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Norsk samtale.
+AI: Ja, det stemmer. En samtale på norsk er i gang.
+Voice: Hva har du gjort?
+AI: Jeg har bare slapp av, egentlig. Ikke gjort noe spesielt.
+
+Nå sier Voice: Hva er dette?
+Svar naturlig på norsk og hold tråden i samtalen.
+(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)
+2025-08-11 18:08:46,574 - Arne Borheim (action=None): Usikker på hva Voice mener, men det ser ut som en innsjø med mange små øyer. Jeg bare så på det.
+2025-08-11 18:08:59,515 - Using model: gemma3:4b-it-qat
+2025-08-11 18:08:59,515 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Norsk samtale.
+AI: Ja, det stemmer. En samtale på norsk er i gang.
+Voice: Hva har du gjort?
+AI: Jeg har bare slapp av, egentlig. Ikke gjort noe spesielt.
+Voice: Hva er dette?
+AI: Usikker på hva Voice mener, men det ser ut som en innsjø med mange små øyer. Jeg bare så på det.
+
+Nå sier Voice: Teksting av Nicolai Winther
+Svar naturlig på norsk og hold tråden i samtalen.
+(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)
+2025-08-11 18:09:02,826 - Arne Borheim (action=None): Jeg ser det også. Det ser ut som en vakker innsjø med masse små øyer.
+2025-08-11 18:09:05,991 - Using model: gemma3:4b-it-qat
+2025-08-11 18:09:05,992 - User message: Dette er en pågående samtale i en Discord-server.
+Tidligere meldinger (kort):
+Voice: Norsk samtale.
+AI: Ja, det stemmer. En samtale på norsk er i gang.
+Voice: Hva har du gjort?
+AI: Jeg har bare slapp av, egentlig. Ikke gjort noe spesielt.
+Voice: Hva er dette?
+AI: Usikker på hva Voice mener, men det ser ut som en innsjø med mange små øyer. Jeg bare så på det.
+Voice: Teksting av Nicolai Winther
+AI: Jeg ser det også. Det ser ut som en vakker innsjø med masse små øyer.
+
+Nå sier Voice: Norsk samtale.
+Svar naturlig på norsk og hold tråden i samtalen.
+(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)
+2025-08-11 18:09:09,820 - Arne Borheim (action=None): Det ser ut som en fin innsjø da. Jeg bare slapper av og ser på det også.
