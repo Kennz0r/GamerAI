@@ -891,7 +891,9 @@ def transcribe_audio(path: str, *, cleanup: bool =True) -> str:
                 continue
             pieces.append(t)
 
-        return " ".join(pieces).strip()
+        out = " ".join(pieces).strip()
+        out = _strip_noise_phrases(out)   # <- bruk blacklisten her
+        return out
 
     finally:
         if cleanup:
