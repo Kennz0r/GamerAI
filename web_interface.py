@@ -58,6 +58,16 @@ except Exception as e:
 DISCORD_TEXT_CHANNEL = os.getenv("DISCORD_TEXT_CHANNEL", "0")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_API_BASE = "https://discord.com/api/v10"
+# Pek disse til din eksisterende mekanikk, eller behold som enkel kø om du ikke har helpers
+CHANNEL_QUEUES: dict[int, list[dict]] = {}
+
+def enqueue_user(channel_id: int, user_name: str, text: str, user_id: str | None = None):
+    q = CHANNEL_QUEUES.setdefault(channel_id, [])
+    q.append({"role": "user", "user_id": user_id, "user_name": user_name, "text": text, "ts": time.time()})
+
+def enqueue_assistant(channel_id: int, text: str):
+    q = CHANNEL_QUEUES.setdefault(channel_id, [])
+    q.append({"role": "assistant", "text": text, "ts": time.time()})
 
 def resolve_discord_name(user_id: str) -> str:
     if not user_id or not DISCORD_TOKEN:
@@ -823,9 +833,9 @@ def queue_message():
 
 @app.route("/queue_audio", methods=["POST"])
 def queue_audio():
-    user_message = ""
-    default_channel = DISCORD_TEXT_CHANNEL if DISCORD_TEXT_CHANNEL != "0" else None
-    channel_id = request.form.get("channel_id") or default_channel
+    # --- felt fra form / defaults ---
+    default_channel = str(DISCORD_TEXT_CHANNEL) if str(DISCORD_TEXT_CHANNEL) != "0" else None
+    channel_id = (request.form.get("channel_id") or default_channel or "").strip() or None
     user_name = request.form.get("user_name", "Voice")
     user_id   = (request.form.get("user_id") or "").strip() or None
     guild_id  = (request.form.get("guild_id") or "").strip() or None
@@ -838,33 +848,48 @@ def queue_audio():
 
     # --- unike stier pr request ---
     uid = uuid.uuid4().hex
-    ext = _safe_ext(audio_file)
+    try:
+        ext = _safe_ext(audio_file)  # forventer ".mp3" / ".wav" etc.
+    except Exception:
+        ext = ".wav"
+
     raw_path    = os.path.join("tmp_audio", f"{uid}{ext}")
     merged_path = os.path.join("tmp_audio", f"{uid}_merged.wav")
-
     audio_file.save(raw_path)
 
     # bilde-cache håndteres som før (men IKKE trigge _needs_image før vi har STT-tekst)
     image_b64, img_present, img_src = _extract_image_from_request(request)
-    if not img_present and (cached := _vision_get(guild_id)):
-        image_b64, img_present, img_src = cached, True, "cache"
-    elif img_present:
+    if not img_present and guild_id:
+        cached = _vision_get(guild_id)
+        if cached:
+            image_b64, img_present, img_src = cached, True, "cache"
+    elif img_present and guild_id:
         _vision_set(guild_id, image_b64)
 
     start_total = time.time()
     lock_key = user_id or "global"
-    with USER_LOCKS[lock_key]:
-        try:
+    lock = USER_LOCKS.setdefault(lock_key, threading.Lock())
+
+    user_message = ""
+    try:
+        with lock:
+            # Last og normaliser
             audio_seg = _load_audio_best_effort(raw_path)
             print(f"[srv] raw_loaded: dur_ms={len(audio_seg)} sr={getattr(audio_seg,'frame_rate','NA')} "
-                f"ch={getattr(audio_seg,'channels','NA')} size={os.path.getsize(raw_path)}")
+                  f"ch={getattr(audio_seg,'channels','NA')} size={os.path.getsize(raw_path)}")
+
             if len(audio_seg) == 0:
+                return {"status": "ignored"}
+            if len(audio_seg) < 200:  # dropp ekstremt korte biter (<0.2s)
                 return {"status": "ignored"}
 
             audio_seg = audio_seg.set_channels(1).set_frame_rate(16000)
-            audio_seg = effects.normalize(audio_seg)
+            try:
+                audio_seg = effects.normalize(audio_seg)
+            except Exception:
+                pass
 
-            # tail-merge (beskyttert av lock)
+            # tail-merge (per bruker)
             if user_id:
                 prev_tail = LAST_TAIL.get(user_id)
                 if prev_tail:
@@ -875,7 +900,7 @@ def queue_audio():
             audio_seg.export(merged_path, format="wav")
             print(f"[srv] chunk uid={uid} dur_ms={len(audio_seg)} dBFS={getattr(audio_seg,'dBFS','NA')}")
 
-            # STT på MERGED (din transcribe_audio lager ev. _dn-filer selv)
+            # STT på MERGED
             start = time.time()
             user_message = transcribe_audio(merged_path)
             last_process_times["speech_ms"] = int((time.time() - start) * 1000)
@@ -902,53 +927,58 @@ def queue_audio():
                     time.sleep(0.05)
                 print(f"[VISION] wait result: got={got} src={img_src} img_present={img_present}")
 
-        except ValueError as err:
-            return {"error": str(err)}, 400
-        finally:
-            # rydd unike filer
-            for p in (raw_path, merged_path):
-                try: os.path.exists(p) and os.remove(p)
-                except: pass
+    except ValueError as err:
+        return {"error": str(err)}, 400
+    finally:
+        # rydd unike filer
+        for p in (raw_path, merged_path):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except:
+                pass
 
-            if not user_message.strip():
-                return {"status": "ignored"}
+        if not (user_message and user_message.strip()):
+            return {"status": "ignored"}
 
-
+    # Bygg prompt lik mic-løypa
     history_text = build_history_for_guild(guild_id)
     prompt = (
-    "Dette er en pågående samtale i en Discord-server.\n"
-    + (f"Tidligere meldinger (kort):\n{history_text}\n\n" if history_text else "")
-    + f"Nå sier {user_name}: {user_message}\n"
-    "Svar naturlig på norsk og hold tråden i samtalen."
-)
+        "Dette er en pågående samtale i en Discord-server.\n"
+        + (f"Tidligere meldinger (kort):\n{history_text}\n\n" if history_text else "")
+        + f"Nå sier {user_name}: {user_message}\n"
+        "Svar naturlig på norsk og hold tråden i samtalen."
+    )
     use_img = _should_use_image(user_message, image_b64)
     print(f"[IMG] policy: mode={IMAGE_USE_MODE}, img_present={img_present}, src={img_src}, will_use={use_img}")
     if use_img:
         prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
 
+    # LLM
     start = time.time()
     reply_raw = get_ai_response(
-    prompt,
-    user_id=user_id,
-    user_name=user_name,
-    guild_id=guild_id,
-    image=(f"data:image/*;base64,{image_b64}" if use_img and img_present else None),
-)
+        prompt,
+        user_id=user_id,
+        user_name=user_name,
+        guild_id=guild_id,
+        image=(f"data:image/*;base64,{image_b64}" if use_img and img_present else None),
+    )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):
         reply, action = reply_raw
     else:
         reply, action = reply_raw, None
-        
 
-    # Voice action handling (from voice → STT → LLM)
+    # Voice action (leave osv.)
     if action == "leave":
         voice_command["action"] = "leave"
-        voice_command["channel_id"] = channel_id  # bot will disconnect from any VC it’s in
+        voice_command["channel_id"] = channel_id
         print(f"[Voice Command] Leave triggered by {user_name} (voice)")
         last_process_times["tts_ms"] = 0
         last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
         return {"status": "voice_command", "command": "leave"}
+
+    # Logg i samtale
     conversation.append({
         "guild_id": guild_id,
         "channel_id": channel_id,
@@ -959,17 +989,29 @@ def queue_audio():
         "rating": None,
     })
 
-    global pending_tts_web, pending_tts_discord
-    start = time.time()
-    audio = create_tts_audio(reply)
-    last_process_times["tts_ms"] = int((time.time() - start) * 1000)
+    # TTS
+    audio = None
+    try:
+        tts_start = time.time()
+        audio = create_tts_audio(reply)
+        last_process_times["tts_ms"] = int((time.time() - tts_start) * 1000)
+    except Exception as e:
+        print(f"[TTS] failed: {e}")
+        last_process_times["tts_ms"] = 0
+
     last_process_times["total_ms"] = int((time.time() - start_total) * 1000)
+
+    # Output buffers/queues som før
+    global pending_tts_web, pending_tts_discord
     pending_tts_web = audio
 
     if discord_send_enabled:
         pending_tts_discord = audio
         if channel_id and DISCORD_TOKEN:
-            send_to_discord(channel_id, reply)
+            try:
+                send_to_discord(channel_id, reply)
+            except Exception as e:
+                print(f"[discord] send text failed: {e}")
         pending["channel_id"] = None
         pending["reply"] = None
         return {"status": "sent"}
@@ -977,8 +1019,8 @@ def queue_audio():
     pending["channel_id"] = channel_id
     pending["reply"] = reply
     pending_tts_discord = None
-
     return {"status": "queued"}
+
 
 @app.route("/vision/update", methods=["POST"])
 def vision_update():

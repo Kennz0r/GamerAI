@@ -13,7 +13,7 @@
   "style": {
     "humor": 1.0,
     "snark": 0.7,
-    "empathy": 0.9000000000000001,
+    "empathy": 0.9500000000000002,
     "language": "Norwegian",
     "first_person": true,
     "no_stage_directions": true,
@@ -23,6 +23,6 @@
     "emoji_use": "light",
     "rephrase_when_unclear": true,
     "roleplay_note": "",
-    "conciseness": 1
+    "conciseness": 1.0
   }
 }

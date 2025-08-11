@@ -286,4 +286,4 @@ async def on_message(message: discord.Message):
         print(f"[on_message] {e}")
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    bot.run(os.getenv("DISCORD_TOKEN"))
