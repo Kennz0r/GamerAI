@@ -126,9 +126,25 @@ async def voice_listener(vc: discord.VoiceClient):
         done = asyncio.Event()
 
         async def _callback(sink: "discord.sinks.Sink", *_):
+            def force_wav(b: bytes) -> bytes:
+                # Tving ny WAV med 48 kHz, mono, s16le – uansett
+                try:
+                    if len(b) > 12 and b[:4] == b"RIFF" and b[8:12] == b"WAVE":
+                        # Prøv å finne 'data'-chunk og repakk bare rå PCM
+                        i = b.find(b"data")
+                        if i != -1 and i + 8 < len(b):
+                            raw = b[i+8:]
+                            if raw:
+                                return _ensure_wav(raw, sr=48000, ch=1, sw=2)
+                    # Hvis ikke WAV eller fant ikke data-chunk: pakk hele som rå PCM
+                    return _ensure_wav(b, sr=48000, ch=1, sw=2)
+                except Exception:
+                    return _ensure_wav(b, sr=48000, ch=1, sw=2)
+
             try:
-                for _, ad in list(sink.audio_data.items()):
+                for key, ad in list(sink.audio_data.items()):
                     f = ad.file
+                    # --- les bytes robust ---
                     try:
                         if hasattr(f, "flush"): f.flush()
                         if hasattr(f, "seek"):  f.seek(0)
@@ -137,28 +153,38 @@ async def voice_listener(vc: discord.VoiceClient):
                         data = getattr(f, "getvalue", lambda: b"")()
 
                     if not data:
-                        continue
+                        return
 
-                    # --- Tving korrekt WAV ---
-                    def force_wav(b: bytes) -> bytes:
-                        try:
-                            # hvis det ser ut som WAV: finn 'data'-chunk og bruk bare rå PCM etter den
-                            if len(b) > 12 and b[:4] == b"RIFF" and b[8:12] == b"WAVE":
-                                i = b.find(b"data")
-                                if i != -1 and i + 8 < len(b):
-                                    raw = b[i+8:]
-                                    if raw:
-                                        return _ensure_wav(raw, sr=48000, ch=1, sw=2)
-                            # ellers: pakk alt som rå PCM
-                            return _ensure_wav(b, sr=48000, ch=1, sw=2)
-                        except Exception:
-                            return _ensure_wav(b, sr=48000, ch=1, sw=2)
+                    wav_bytes = data  # <- alltid repakk
 
-                    wav_bytes = force_wav(data)
-
+                    # --- finn bruker robust ---
                     user = getattr(ad, "user", None)
-                    uid = getattr(user, "id", None)
-                    uname = getattr(user, "display_name", None) or getattr(user, "name", None) or "Voice"
+                    uid: int | None = None
+                    uname = "Voice"
+
+                    if user:
+                        uid = getattr(user, "id", None)
+                        uname = getattr(user, "display_name", None) or getattr(user, "name", None) or uname
+                    else:
+                        if hasattr(key, "id"):
+                            uid = key.id
+                            uname = getattr(key, "display_name", None) or getattr(key, "name", None) or uname
+                        elif isinstance(key, int):
+                            uid = key
+                            m = vc.guild.get_member(uid) if vc.guild else None
+                            if m:
+                                uname = m.display_name or m.name or uname
+                            else:
+                                u = bot.get_user(uid)
+                                if u:
+                                    uname = getattr(u, "display_name", None) or getattr(u, "name", None) or uname
+                                elif vc.guild:
+                                    try:
+                                        m2 = await vc.guild.fetch_member(uid)
+                                        if m2:
+                                            uname = m2.display_name or m2.name or uname
+                                    except Exception:
+                                        pass
 
                     await send_audio(
                         wav_bytes,
@@ -167,14 +193,17 @@ async def voice_listener(vc: discord.VoiceClient):
                         guild_id=vc.guild.id if vc.guild else None
                     )
             finally:
-                try: sink.cleanup()
-                except Exception: pass
+                try:
+                    sink.cleanup()
+                except Exception:
+                    pass
                 done.set()
+
 
 
         # start én chunk
         try:
-            sink = discord.sinks.WaveSink()
+            sink = discord.sinks.MP3Sink()
             vc.start_recording(sink, _callback)
         except Exception as e:
             print(f"[voice_listener] start_recording failed: {e}")

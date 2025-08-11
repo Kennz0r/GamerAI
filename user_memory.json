@@ -3,35 +3,35 @@
     "169885360233512961": [
       {
         "role": "user",
-        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva gjør du?\nJeg prøver å holde styr på samtalen og holde oversikt over hva som blir diskutert. Akkurat nå ser jeg at du spør hva \"dette\" er – det skjermbildet med øyer. Nå sier Kenneth: Ja, det var i går.\nSvar naturlig på norsk og hold tråden i samtalen."
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nAmen.\nAmen, ja? Hva tenker du på? Nå sier Kenneth: Hei, min venn.\nSvar naturlig på norsk og hold tråden i samtalen."
       },
       {
         "role": "assistant",
-        "content": "Ja, det var i går. Hva er det du tenker på angående skjermbildet med øyene?"
+        "content": "Hei! Ikke noe spesielt akkurat nå, bare lurte på om du hadde noe morsomt på gang?"
       },
       {
         "role": "user",
-        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva gjør du?\nJeg prøver å holde styr på samtalen og holde oversikt over hva som blir diskutert. Akkurat nå ser jeg at du spør hva \"dette\" er – det skjermbildet med øyer.\nJa, det var i går.\nJa, det var i går. Hva er det du tenker på angående skjermbildet med øyene? Nå sier Kenneth: Du skal nødvendigvis se seg.\nSvar naturlig på norsk og hold tråden i samtalen."
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nAmen.\nAmen, ja? Hva tenker du på?\nHei, min venn.\nHei! Ikke noe spesielt akkurat nå, bare lurte på om du hadde noe morsomt på gang? Nå sier Kenneth: Norsk samtale.\nSvar naturlig på norsk og hold tråden i samtalen."
       },
       {
         "role": "assistant",
-        "content": "Jeg bare lurte hvor det var! Det var jo så vakkert der."
+        "content": "Jeg bare slapper av her, egentlig. Hva med deg?"
       },
       {
         "role": "user",
-        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva gjør du?\nJeg prøver å holde styr på samtalen og holde oversikt over hva som blir diskutert. Akkurat nå ser jeg at du spør hva \"dette\" er – det skjermbildet med øyer.\nJa, det var i går.\nJa, det var i går. Hva er det du tenker på angående skjermbildet med øyene?\nDu skal nødvendigvis se seg.\nJeg bare lurte hvor det var! Det var jo så vakkert der. Nå sier Kenneth: Hva er dette?\nSvar naturlig på norsk og hold tråden i samtalen.\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nAmen.\nAmen, ja? Hva tenker du på?\nHei, min venn.\nHei! Ikke noe spesielt akkurat nå, bare lurte på om du hadde noe morsomt på gang?\nNorsk samtale.\nJeg bare slapper av her, egentlig. Hva med deg? Nå sier Kenneth: Norsk samtale.\nSvar naturlig på norsk og hold tråden i samtalen."
       },
       {
         "role": "assistant",
-        "content": "Ja, det er jo helt fantastisk! Det er jo en helt idyllisk liten øyelands."
+        "content": "Jeg slapper også av! Bare lurer på hva som skjer i serveren."
       },
       {
         "role": "user",
-        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nHva gjør du?\nJeg prøver å holde styr på samtalen og holde oversikt over hva som blir diskutert. Akkurat nå ser jeg at du spør hva \"dette\" er – det skjermbildet med øyer.\nJa, det var i går.\nJa, det var i går. Hva er det du tenker på angående skjermbildet med øyene?\nDu skal nødvendigvis se seg.\nJeg bare lurte hvor det var! Det var jo så vakkert der.\nHva er dette?\nJa, det er jo helt fantastisk! Det er jo en helt idyllisk liten øyelands. Nå sier Kenneth: Norsk samtale.\nSvar naturlig på norsk og hold tråden i samtalen.\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
+        "content": "Dette er en pågående samtale i en Discord-server.\nTidligere meldinger (kort):\nAmen.\nAmen, ja? Hva tenker du på?\nHei, min venn.\nHei! Ikke noe spesielt akkurat nå, bare lurte på om du hadde noe morsomt på gang?\nNorsk samtale.\nJeg bare slapper av her, egentlig. Hva med deg?\nNorsk samtale.\nJeg slapper også av! Bare lurer på hva som skjer i serveren. Nå sier Kenneth: Hvor er jeg på bilde?\nSvar naturlig på norsk og hold tråden i samtalen.\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
       },
       {
         "role": "assistant",
-        "content": "Åh, ja, det er jo helt nydelig! Virkelig en idyllisk liten øy!"
+        "content": "Hei! Jeg er her på bilde."
       }
     ],
     "347438146323218433": [
@@ -160,7 +160,7 @@
     ]
   },
   "summaries": {
-    "169885360233512961": "Her er en punktliste over brukers preferanser og viktige detaljer fra dialogen:\n\n*   **Interesse for visuell beskrivelse:** Bruker er interessert i detaljerte beskrivelser av et sted, spesielt i denne sammenhengen et skjermbilde av en innsjø med små øyer.\n*   **Ønsker å vite hvor det er:** Bruker er nysgjerrig på hvor \"dette\" stedet ligger.\n*   **Kontekst:** Samtalen foregår i en Discord-server, med referanser til tidligere meldinger og et skjermbilde.\n*   **Fokus på beskrivelser:** Bruker reagerer positivt på beskrivelser av et vakkert eller idyllisk sted.",
+    "169885360233512961": "Her er en punktliste som oppsummerer brukerens preferanser og viktige detaljer fra dialogen:\n\n*   **Samtaleemner:** Bruker er interessert i samtaler på norsk.\n*   **Spesifikke forespørsel:** Bruker har forespurt om teksting av Nicolai Winther og deretter om bruk av Norske Navn.\n*   **Forvirring:** Bruker uttrykte forvirring rundt forespørselen om “Bruk Norske Navn” og trenger klargjøring.\n*   **Nåværende spørsmål:** Bruker stiller spørsmålet \"Amen.\"",
     "563169095961542676": "Her er en oppsummering av brukerens preferanser og viktige detaljer:\n\n*   **Forvirring:** Brukeren er konstant forvirret og trenger ofte bekreftelse på hva som skjer.\n*   **Bekreftelse:** Brukeren trenger bekreftelse på at de er i en norsk samtale.\n*   **Fokus på manglende informasjon:** Brukeren er opptatt av å forstå hva som skjer og hva de ser, spesielt når det gjelder en tom kanal.\n*   **Forespørsel om klargjøring:** Brukeren stiller ofte spørsmål for å få bekreftelse og forklaring på hva som foregår.\n*   **Discord-server:** Samtalen foregår i en Discord-server."
   }
 }

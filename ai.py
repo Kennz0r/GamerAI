@@ -902,7 +902,7 @@ def transcribe_audio(path: str, *, cleanup: bool =True) -> str:
             # delete the denoise/VAD intermediates (and any pattern-matched leftovers)
             for p in set([dn_path, vad_path] + glob.glob(base + "_dn*.wav")):
                 if p and os.path.exists(p) and p != wav_path:
-                    try: os.remove(p)
+                    try: os.remove("p")
                     except: pass
 
 
