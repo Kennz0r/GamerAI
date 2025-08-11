@@ -943,25 +943,20 @@ def queue_audio():
 
     # Bygg prompt lik mic-løypa
     history_text = build_history_for_guild(guild_id)
-    prompt = (
-        "Dette er en pågående samtale i en Discord-server.\n"
-        + (f"Tidligere meldinger (kort):\n{history_text}\n\n" if history_text else "")
-        + f"Nå sier {user_name}: {user_message}\n"
-        "Svar naturlig på norsk og hold tråden i samtalen."
-    )
-    use_img = _should_use_image(user_message, image_b64)
-    print(f"[IMG] policy: mode={IMAGE_USE_MODE}, img_present={img_present}, src={img_src}, will_use={use_img}")
-    if use_img:
-        prompt += "\n(Bare bruk bildet hvis jeg ba deg om det eller spørsmålet krever syn.)"
+    extra_system = "Svar alltid på norsk og hold tråden i samtalen."
+    if history_text := build_history_for_guild(guild_id):
+        extra_system += f"\nTidligere meldinger (kort):\n{history_text}"
 
-    # LLM
-    start = time.time()
+    use_img = _should_use_image(user_message, image_b64)
+    img_arg = f"data:image/*;base64,{image_b64}" if (use_img and img_present) else None
+
     reply_raw = get_ai_response(
-        prompt,
+        user_msg=user_message,       # <- VIKTIG
         user_id=user_id,
         user_name=user_name,
         guild_id=guild_id,
-        image=(f"data:image/*;base64,{image_b64}" if use_img and img_present else None),
+        image=img_arg,
+        extra_system=extra_system,
     )
     last_process_times["llm_ms"] = int((time.time() - start) * 1000)
     if isinstance(reply_raw, tuple):

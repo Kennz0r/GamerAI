@@ -406,16 +406,6 @@ except Exception:
     pass
 
 
-VTUBER_NAME = "Arne Borheim"
-
-system_prompt = f"""
-Du er {VTUBER_NAME}. Svar på naturlig norsk i korte, naturlige setninger.
-Skriv aldri navn eller rolle foran svaret (ingen 'AI:', 'Assistant:', 'Arne:' osv.).
-Ikke bruk sceneanvisninger som (sukker), (stønner), *ler* eller lignende. Bruk heller "sukk", pfft, eller hahaha.
-Bruk første person («jeg»). Du kan være litt stor i munnen dersom du blir provosert. 
-Hvis noe er uforståelig, be kort om en omformulering i stedet for å gjette.
-"""
-
 
 # Configure a client for the Ollama server
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -484,27 +474,34 @@ def get_ai_response(
     user_name: str | None = None,
     guild_id: str | None = None,
     image: str | None = None,
+    extra_system: str | None = None,
 ):
     model = current_model
     logger.info("Using model: %s", model)
+    logger.info("[AI] guild=%s user=%s name=%s", guild_id, user_id, user_name)
     logger.info("User message: %s", user_msg)
 
-    # Update personal + guild memory
+    # --- Oppdater minne/profiler ---
     if user_id:
         remember_user(user_id, user_name)  # per-user profile
     if guild_id and user_id:
         remember_guild_user(guild_id, user_id, user_name)
 
-    messages = build_system_prompt(user_id, guild_id)
+    # --- ALLTID start med persona/system ---
+    messages: list[dict] = build_system_prompt(user_id, guild_id)
 
-    # Inject server-wide roster summary
+    # Ekstra systeminstruks (språk, tråd, kort historikk-hint) kommer ETTER persona
+    if extra_system:
+        messages.append({"role": "system", "content": extra_system})
+
+    # Server-/guild-blurb (roster/oppsummeringer)
     history: list[dict] = []
     if guild_id:
         blurb = guild_context_blurb(guild_id)
         if blurb:
             messages.append({"role": "system", "content": blurb})
 
-    # (Optional) inject per-user summary/notes/history
+    # Per-user profil + rullende minne
     if user_id:
         prof = USER_PROFILES.get(user_id, {})
         summary = USER_SUMMARIES.get(user_id, "")
@@ -520,21 +517,26 @@ def get_ai_response(
             )
             messages.append({"role": "system", "content": profile_blurb})
 
-        # defensively trim history to reduce prompt size
+        # defensiv trimming av historikk for tokens
         history = USER_MEMORIES.get(user_id, [])[-(MEMORY_MAX_TURNS * 2):]
         messages.extend(history)
-    
-    
+
+    # Debug: bekreft at første melding faktisk er persona/system
+    try:
+        logger.debug("[AI] system[0]: %s", (messages[0].get("content", "")[:200] if messages else ""))
+    except Exception:
+        pass
+
+    # --- Rydd opp brukermelding ---
     user_msg = _clean_names_and_labels_in(user_msg)
 
-    # keep your existing history above; we use it here
     has_image = bool(image)
     key = _await_key(user_id, guild_id)
 
-    # Do we have a recent textual description we can use instead of insisting on an image?
+    # Kan vi svare visuelt uten nytt bilde (nylig tekstbeskrivelse)?
     recent_desc = _recent_textual_description(history, user_msg)
 
-    # Visual question, no image, no textual description → ask once, then pivot to text
+    # Visuelt spørsmål uten bilde/tekstlig beskrivelse → be én gang, deretter guard
     if _needs_visual_answer(user_msg) and not has_image and not recent_desc:
         if not _awaiting_image(key):
             _set_await_image(key, 45)
@@ -542,25 +544,22 @@ def get_ai_response(
         else:
             return _vision_guard_text(2), None
 
-    # --- Build the final user message (attach image if present) ---
+    # --- Bygg user-melding (med ev. bilde) ---
     img_b64 = None
     if has_image:
         img_b64 = image.split(",", 1)[1] if ("," in image) else image
 
-    # If user keeps asking visually but we only have a text description, surface it for grounding
+    # Hvis vi bare har tekstlig beskrivelse av scenen, gjør den eksplisitt
     if recent_desc and _needs_visual_answer(user_msg) and not has_image:
         messages.append({"role": "system", "content": f"(Bruker beskriver uten bilde): {recent_desc}"})
 
     user_payload = {"role": "user", "content": (user_msg or "Hva er dette?")}
     if img_b64:
-        user_payload["images"] = [img_b64]
+        user_payload["images"] = [img_b64]  # Ollama vision
         _clear_await_image(key)
     messages.append(user_payload)
 
-
-    
-
-    # ---- Fast options for Ollama ----
+    # ---- Ollama options (som før) ----
     dyn_num_predict = _dynamic_num_predict(user_msg, OLLAMA_NUM_PREDICT, OLLAMA_NUM_PREDICT_MAX)
     opts = {
         "num_ctx": OLLAMA_NUM_CTX,
@@ -572,7 +571,6 @@ def get_ai_response(
     if OLLAMA_NUM_THREAD > 0:
         opts["num_thread"] = OLLAMA_NUM_THREAD
 
-    # helper to strip images if model rejects them
     def _strip_images(msgs):
         out = []
         for m in msgs:
@@ -581,7 +579,7 @@ def get_ai_response(
             out.append(m)
         return out
 
-    # First attempt: with image (if any)
+    # --- Første forsøk (med bilde hvis finnes) ---
     try:
         response = ollama_client.chat(
             model=model,
@@ -592,7 +590,6 @@ def get_ai_response(
     except Exception as e:
         err = str(e).lower()
         images_in_payload = any(("images" in m) for m in messages)
-        # If the server/model complains about images/vision, retry once without images
         if images_in_payload and any(tok in err for tok in ("image", "images", "multi", "vision", "unsupported")):
             logger.info("Retrying without image due to model error: %s", e)
             messages = _strip_images(messages)
@@ -606,10 +603,9 @@ def get_ai_response(
             logger.error("Ollama error: %s", e)
             return f"[Feil ved tilkobling til Ollama: {e}]", None
 
-    # -------- post-processing (runs for both first try and retry) --------
+    # -------- Post-prosessering --------
     reply_raw = (response.get("message") or {}).get("content", "")
 
-    # Clean up
     thoughts = re.findall(r"<think>(.*?)</think>", reply_raw, flags=re.DOTALL)
     for thought in thoughts:
         logger.info("Arne Borheim [think]: %s", thought.strip())
@@ -633,13 +629,13 @@ def get_ai_response(
     reply = re.sub(r"\s{2,}", " ", reply).strip()
     reply = _style_polish(reply)
 
-    # honest guard if we were waiting for an image
+    # Ærlig guard hvis vi fortsatt venter på bilde
     if _awaiting_image(key) and not has_image and _needs_visual_answer(user_msg):
         reply = _vision_guard_text(2)
     else:
-        _clear_await_image(key)  # vi kom videre via bilde eller beskrivelse
+        _clear_await_image(key)
 
-    # Update per-user rolling memory + summaries
+    # --- Oppdater rullende minne + sammendrag ---
     if user_id:
         hist = USER_MEMORIES.get(user_id, [])
         hist = hist + [
@@ -653,6 +649,7 @@ def get_ai_response(
 
     logger.info("Arne Borheim (action=%s): %s", action, reply)
     return reply, action
+
 
 
 

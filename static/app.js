@@ -72,58 +72,77 @@ function App() {
 
   const statusClass = enabled => `status-button ${enabled ? 'on' : 'off'}`;
 
-  React.useEffect(() => {
-    const fetchData = () => {
-      fetch('/conversation')
-        .then(res => res.json())
-        .then(data => setConversation(data));
-      fetch('/pending_message')
-        .then(res => res.json())
-        .then(data => setPending(data.reply || ''));
-      fetch('/speech_recognition')
-        .then(res => res.json())
-        .then(data => setSpeechEnabled(data.enabled));
-      fetch('/discord_send')
-        .then(res => res.json())
-        .then(data => {
-          setDiscordEnabled(data.enabled);
-          localStorage.setItem('discordEnabled', JSON.stringify(data.enabled));
-        });
-      fetch('/discord_bot')
-        .then(res => res.json())
-        .then(data => setBotRunning(data.running));
-      fetch('/log')
-        .then(res => res.json())
-        .then(data => setLog(data.log));
-      fetch('/piper_settings')
-        .then(res => res.json())
-        .then(data => setPiperSettings(data));
-      fetch('/timings')
-        .then(res => res.json())
-        .then(data => setTimings(data));
-      fetch('/image_policy')
-        .then(r => r.json())
-        .then(d => setImagePolicy(d.mode || 'auto'))
-        .catch(() => {});
-    };
-    fetchData();
-    const interval = setInterval(fetchData, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  // erstatt hele useEffect som poller mange endepunkter
+React.useEffect(() => {
+  let stopped = false;
+  let inFlight = false;
 
-  React.useEffect(() => {
-    if (!ttsEnabled) return;
-    const interval = setInterval(async () => {
-      const res = await fetch('/tts_preview');
+  async function poll() {
+    if (stopped || inFlight) return;
+    inFlight = true;
+    try {
+      const [
+        conv, pending, speech, disc, bot, logRes, piper, times, imgPol,
+      ] = await Promise.all([
+        fetch('/conversation').then(parseJsonStrict),
+        fetch('/pending_message').then(parseJsonStrict),
+        fetch('/speech_recognition').then(parseJsonStrict),
+        fetch('/discord_send').then(parseJsonStrict),
+        fetch('/discord_bot', { headers: { Accept: 'application/json' } }).then(parseJsonStrict),
+        fetch('/log').then(parseJsonStrict),
+        fetch('/piper_settings').then(parseJsonStrict),
+        fetch('/timings').then(parseJsonStrict),
+        fetch('/image_policy').then(parseJsonStrict),
+      ]);
+      setConversation(conv);
+      setPending(pending.reply || '');
+      setSpeechEnabled(!!speech.enabled);
+      setDiscordEnabled(!!disc.enabled);
+      localStorage.setItem('discordEnabled', JSON.stringify(!!disc.enabled));
+      setBotRunning(!!bot.running);
+      setLog(logRes.log);
+      setPiperSettings(piper);
+      setTimings(times);
+      setImagePolicy(imgPol.mode || 'auto');
+    } catch (_) {
+      // valgfritt: log
+    } finally {
+      inFlight = false;
+      if (!stopped) setTimeout(poll, 3000); // ro ned litt
+    }
+  }
+
+  poll();
+  return () => { stopped = true; };
+}, []);
+
+React.useEffect(() => {
+  if (!ttsEnabled) return;
+  let stopped = false, playing = false, inFlight = false;
+
+  async function loop() {
+    if (stopped || playing || inFlight) return;
+    inFlight = true;
+    try {
+      const res = await fetch('/tts_preview', { cache: 'no-store' });
       if (res.status === 200) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
+        playing = true;
+        audio.onended = () => { playing = false; URL.revokeObjectURL(url); };
         audio.play();
       }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [ttsEnabled]);
+    } catch (_) {} 
+    finally {
+      inFlight = false;
+      if (!stopped) setTimeout(loop, 4000); // ro ned
+    }
+  }
+
+  loop();
+  return () => { stopped = true; };
+}, [ttsEnabled]);
 
 
 
@@ -575,30 +594,37 @@ async function grabScreenAsDataURL() {
   return c.toDataURL('image/jpeg', 0.85);
 }
 
-setInterval(async () => {
-  try {
-    const r = await fetch('/vision/request', { cache: 'no-store' });
-    const req = await r.json();
-    if (!req || (!req.channel_id && !req.guild_id)) return;
+React.useEffect(() => {
+  let stopped = false;
+  let inFlight = false;
 
-    // make sure we actually have a frame
-    const img = (typeof latestFrameRef !== 'undefined' && latestFrameRef.current) ? latestFrameRef.current : null;
-    if (!img) return;
-
-    await fetch('/vision/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        channel_id: req.channel_id || null,
-        guild_id: req.guild_id || null,   // include guild to avoid lookup delay
-        image: img
-      })
-    });
-    // optional: console.log('[VISION] pushed frame on request');
-  } catch (e) {
-    // silent
+  async function loop() {
+    if (stopped || inFlight) return;
+    inFlight = true;
+    try {
+      const r = await fetch('/vision/request', { cache: 'no-store' });
+      const req = await r.json();
+      if (req && (req.channel_id || req.guild_id) && latestFrameRef.current) {
+        await fetch('/vision/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel_id: req.channel_id || null,
+            guild_id: req.guild_id || null,
+            image: latestFrameRef.current,
+          }),
+        });
+      }
+    } catch (_) {} 
+    finally {
+      inFlight = false;
+      if (!stopped) setTimeout(loop, 2500); // fra 800ms → 2500ms
+    }
   }
-}, 800); // respond fast
+
+  loop();
+  return () => { stopped = true; };
+}, []);
 
 function captureLatestFrame() {
   const v = grabberVideoRef.current;
