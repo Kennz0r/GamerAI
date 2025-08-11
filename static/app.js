@@ -310,23 +310,41 @@ function App() {
     });
   };
 
-  const toggleBot = async () => {
+async function parseJsonStrict(res) {
+  const ct = res.headers.get('content-type') || '';
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${t.slice(0,200)}`);
+  }
+  if (!ct.includes('application/json')) {
+    const t = await res.text();
+    throw new Error(`Forventer JSON, fikk ${ct}. Body: ${t.slice(0,200)}`);
+  }
+  return res.json();
+}
+
+async function refreshBotStatus() {
+  const res = await fetch('/discord_bot', { headers: { Accept: 'application/json' } });
+  const data = await parseJsonStrict(res);
+  return !!data.running;
+}
+
+const toggleBot = async () => {
   const action = botRunning ? 'stop' : 'start';
   const res = await fetch('/discord_bot', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
-    });
-    let data = {};
-    try {
-      data = await res.json();
-    } catch (e) {}
-    if (data.status === 'started' || data.status === 'already_running') {
-      setBotRunning(true);
-    } else if (data.status === 'stopped' || data.status === 'not_running') {
-      setBotRunning(false);
-    }
-  };
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+  const data = await parseJsonStrict(res);
+  setBotRunning(
+    data.status === 'started' ||
+    data.status === 'already_running' ||
+    data.running === true
+  );
+};
+
+
 
   
 

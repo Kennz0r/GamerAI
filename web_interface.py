@@ -1379,7 +1379,7 @@ def persona_route():
         return jsonify({"error": str(e)}), 400
 
 
-@app.route("/discord_bot", methods=["POST"])
+@app.route("/discord_bot", methods=['GET','POST','OPTIONS'])
 def control_discord_bot():
     global discord_bot_process
     if request.method == "GET":
