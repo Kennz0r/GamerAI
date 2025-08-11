@@ -81,19 +81,25 @@ async def send_to_web(channel_id: int, user_message: str, user_name: str,
             print(f"[send_to_web] {e}")
     await asyncio.to_thread(_post)
 
-async def send_audio(data, user_name, user_id=None, guild_id=None) -> None:
+CURRENT_GUILD_ID: int | None = None
+
+async def send_audio(data: bytes, speaker_id: int | None, speaker_name: str = "Voice") -> None:
     def _post():
         try:
-            files = {"file": ("chunk.mp3", data, "audio/mpeg")}
-            form = {
-                "channel_id": str(DISCORD_TEXT_CHANNEL),
-                "user_name": user_name,
-                "user_id": str(user_id or ""),
-                "guild_id": guild_id or "",
-            }
-            WEB_POST.post(f"{WEB_SERVER_URL}/queue_audio", data=form, files=files, timeout=30)
+            files = {"file": ("audio.wav", data, "audio/wav")}
+            requests.post(
+                f"{WEB_SERVER_URL}/queue_audio",
+                data={
+                    "channel_id": str(DISCORD_TEXT_CHANNEL),
+                    "guild_id": str(CURRENT_GUILD_ID or ""),
+                    "user_id": str(speaker_id) if speaker_id else "",
+                    "user_name": speaker_name,
+                },
+                files=files,
+                timeout=360,
+            )
         except Exception as e:
-            print(f"[send_audio] {e}")
+            print(f"[discord_bot] Error sending audio: {e}")
     await asyncio.to_thread(_post)
 
 # ---------- Voice recording ----------
@@ -146,33 +152,27 @@ async def _recording_complete(sink, vc: discord.VoiceClient) -> None:
 
         await send_audio(raw, name, user_id=user_id, guild_id=guild_id)
 
+CHUNK_SEC = float(os.getenv("VOICE_CHUNK_SEC", "1.2"))
 
-
-async def voice_listener(vc: discord.VoiceClient) -> None:
-    if not HAS_SINKS or not HAS_FFMPEG:
-        print("Voice recording not supported; missing sinks or ffmpeg.")
-        return
-
-    CHUNK_SEC = float(os.getenv("VOICE_CHUNK_SEC", "1.2"))
-
+def make_sink():
+    # WAV (PCM) gir best STT. Bruk MP3 kun hvis du må spare båndbredde.
+    return discord.sinks.WaveSink()  # type: ignore
+async def voice_listener(vc: discord.VoiceClient):
     while vc.is_connected():
-        sink = discord.sinks.WaveSink()
-        done = asyncio.Event()
-
-        async def _callback(s, *_):
-            try:
-                await _recording_complete(s, vc)
-            finally:
-                done.set()
-
         try:
+            sink = make_sink()
+            def _callback(s, _):
+                for uid, ad in s.audio_data.items():
+                    with open(ad.file, "rb") as f:
+                        blob = f.read()
+                    speaker = str(getattr(ad, "user", "Voice"))
+                    asyncio.create_task(send_audio(blob, uid, speaker))
             vc.start_recording(sink, _callback, vc)
             await asyncio.sleep(CHUNK_SEC)
             vc.stop_recording()
-            await done.wait()
         except Exception as e:
-            print(f"[voice_listener] {e}")
-            await asyncio.sleep(0.5)
+            print(f"[discord_bot] voice_listener error: {e}")
+            await asyncio.sleep(1.0)
 
 # ---------- Long-pollers ----------
 async def poll_tts():
