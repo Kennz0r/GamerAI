@@ -121,6 +121,7 @@ def make_sink():
 async def voice_listener(vc: discord.VoiceClient):
     import discord.sinks  # type: ignore
     CHUNK_SEC = float(os.getenv("VOICE_CHUNK_SEC", "2.0"))
+    POST_PAD = float(os.getenv("VOICE_POST_PAD", "0.2"))
 
     while vc.is_connected():
         done = asyncio.Event()
@@ -211,7 +212,7 @@ async def voice_listener(vc: discord.VoiceClient):
             continue
 
         # la den ta opp litt
-        await asyncio.sleep(CHUNK_SEC)
+        await asyncio.sleep(CHUNK_SEC + POST_PAD)
 
         # stopp (én gang), så venter vi på callback
         try:
